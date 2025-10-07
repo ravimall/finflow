@@ -1,19 +1,20 @@
 // backend/src/app.js
 const express = require("express");
 const bodyParser = require("body-parser");
-const session = require("express-session");
 const passport = require("passport");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const winston = require("winston");
+const cookieSession = require("cookie-session");
 
 dotenv.config();
-
-// const sequelize = require("./config/db");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// -----------------------------
+// ? Logger setup
+// -----------------------------
 const logger = winston.createLogger({
   level: "info",
   format: winston.format.combine(
@@ -26,22 +27,32 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
+// -----------------------------
+// ? Middleware
+// -----------------------------
 app.use(cors({ origin: "*", credentials: true }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// -----------------------------
+// ? Cookie-based session (Render safe)
+// -----------------------------
 app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "finflowsecret",
-    resave: false,
-    saveUninitialized: true,
-    cookie: { secure: false }
+  cookieSession({
+    name: "session",
+    keys: [process.env.SESSION_SECRET || "finflow_secure_key"],
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production" // Render sets NODE_ENV=production
   })
 );
 
 app.use(passport.initialize());
 app.use(passport.session());
 
+// -----------------------------
+// ? Routes
+// -----------------------------
 const userRoutes = require("./routes/userRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const loanRoutes = require("./routes/loanRoutes");
@@ -54,15 +65,24 @@ app.use("/api/loans", loanRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/reports", reportRoutes);
 
+// -----------------------------
+// ? Root route
+// -----------------------------
 app.get("/", (req, res) => {
-  res.send({ message: "FinFlow Backend is running 🚀" });
+  res.send({ message: "FinFlow Backend is running ??" });
 });
 
+// -----------------------------
+// ? Error handling
+// -----------------------------
 app.use((err, req, res, next) => {
   logger.error(err.stack);
   res.status(500).json({ error: "Something went wrong!" });
 });
 
+// -----------------------------
+// ? Start server
+// -----------------------------
 app.listen(PORT, () => {
   logger.info(`Server running on http://localhost:${PORT}`);
 });
