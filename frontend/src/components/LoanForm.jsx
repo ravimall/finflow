@@ -1,14 +1,24 @@
 
 import { useState } from "react";
-import axios from "axios";
+import { api } from "../lib/api";
+
+const INITIAL_FORM = {
+  customer_id: "",
+  bank_name: "",
+  applied_amount: "",
+  approved_amount: "",
+  rate_of_interest: "",
+  status: "",
+};
 
 export default function LoanForm({ onSuccess }) {
-  const [form, setForm] = useState({ customer_id: "", bank_name: "", applied_amount: "", approved_amount: "", rate_of_interest: "", status: "" });
+  const [form, setForm] = useState(INITIAL_FORM);
   const handle = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const submit = async () => {
     try {
-      await axios.post("https://shubhadevelopers.com/api/loans", form);
+      await api.post("/api/loans", form);
+      setForm({ ...INITIAL_FORM });
       onSuccess && onSuccess();
       alert("Loan created");
     } catch (err) {
