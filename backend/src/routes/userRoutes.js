@@ -11,7 +11,7 @@ const User = require("../models/User");
 
 function generateToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, name: user.name },
     process.env.JWT_SECRET || "finflowjwtsecret",
     { expiresIn: "7d" }
   );
@@ -80,7 +80,17 @@ router.get("/google/callback", (req, res, next) => {
       }
 
       const token = generateToken(user);
-      res.json({ message: "Google login success", token, user });
+      const successRedirect =
+        process.env.GOOGLE_OAUTH_SUCCESS_REDIRECT ||
+        "http://localhost:5173/auth/callback";
+
+      try {
+        const redirectUrl = new URL(successRedirect);
+        redirectUrl.searchParams.set("token", token);
+        res.redirect(redirectUrl.toString());
+      } catch (parseError) {
+        res.json({ message: "Google login success", token, user });
+      }
     }
   )(req, res, next);
 });
