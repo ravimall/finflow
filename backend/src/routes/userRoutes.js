@@ -80,9 +80,13 @@ router.get("/google/callback", (req, res, next) => {
       }
 
       const token = generateToken(user);
+      const defaultSuccessRedirect =
+        process.env.NODE_ENV === "production"
+          ? "https://shubhadevelopers.com/finflow/auth/callback"
+          : "http://localhost:5173/auth/callback";
+
       const successRedirect =
-        process.env.GOOGLE_OAUTH_SUCCESS_REDIRECT ||
-        "http://localhost:5173/auth/callback";
+        process.env.GOOGLE_OAUTH_SUCCESS_REDIRECT || defaultSuccessRedirect;
 
       try {
         const redirectUrl = new URL(successRedirect);
