@@ -62,12 +62,16 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-router.get("/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+router.get(
+  "/google",
+  passport.authenticate("google", { scope: ["profile", "email"], session: false })
 );
 
 router.get("/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login-failed" }),
+  passport.authenticate("google", {
+    failureRedirect: "/login-failed",
+    session: false
+  }),
   (req, res) => {
     const token = generateToken(req.user);
     res.json({ message: "Google login success", token, user: req.user });
