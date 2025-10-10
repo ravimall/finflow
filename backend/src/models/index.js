@@ -24,4 +24,4 @@ async function syncModels() {
 }
 syncModels();
 
-module.exports = { sequelize, User, Customer, Loan, Document };
+module.exports = { sequelize, User, Customer, Loan, Document, CustomerAgent };

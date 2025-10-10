@@ -62,23 +62,34 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-router.get("/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+router.get(
+  "/google",
+  passport.authenticate("google", { scope: ["profile", "email"], session: false })
 );
 
-router.get("/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login-failed" }),
-  (req, res) => {
-    const token = generateToken(req.user);
-    res.json({ message: "Google login success", token, user: req.user });
-  }
-);
+router.get("/google/callback", (req, res, next) => {
+  passport.authenticate(
+    "google",
+    { failureRedirect: "/login-failed", session: false },
+    (err, user) => {
+      if (err) {
+        return next(err);
+      }
+      if (!user) {
+        return res.redirect("/login-failed");
+      }
+
+      const token = generateToken(user);
+      res.json({ message: "Google login success", token, user });
+    }
+  )(req, res, next);
+});
 
 router.post("/create", async (req, res) => {
   try {
     const { name, email, role } = req.body;
     const user = await User.create({ name, email, role });
-//     res.json({ message: "User created successfully", user });
+    res.json({ message: "User created successfully", user });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

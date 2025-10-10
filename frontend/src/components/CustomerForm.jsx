@@ -1,14 +1,23 @@
 
 import { useState } from "react";
-import axios from "axios";
+import { api } from "../lib/api";
+
+const INITIAL_FORM = {
+  customer_id: "",
+  name: "",
+  phone: "",
+  email: "",
+  address: "",
+};
 
 export default function CustomerForm({ onSuccess }) {
-  const [form, setForm] = useState({ customer_id: "", name: "", phone: "", email: "", address: "" });
+  const [form, setForm] = useState(INITIAL_FORM);
   const handle = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const submit = async () => {
     try {
-      await axios.post("https://shubhadevelopers.com/api/customers", form);
+      await api.post("/api/customers", form);
+      setForm({ ...INITIAL_FORM });
       onSuccess && onSuccess();
       alert("Customer created");
     } catch (err) {
