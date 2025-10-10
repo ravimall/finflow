@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "../lib/api";
 
 export default function Documents() {
   const [docs, setDocs] = useState([]);
 
   useEffect(() => {
-    axios.get("https://shubhadevelopers.com/api/documents/customer/1")
+    api.get("/api/documents/customer/1")
       .then(res => setDocs(res.data))
       .catch(err => console.error(err));
   }, []);
@@ -23,3 +23,4 @@ export default function Documents() {
     </div>
   );
 }
+

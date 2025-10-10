@@ -1,29 +1,37 @@
 import LoanForm from "../components/LoanForm";
-import { useEffect, useState } from "react";
-import axios from "axios";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "../lib/api";
 
 export default function Loans() {
   const [loans, setLoans] = useState([]);
 
-  useEffect(() => {
-    axios.get("https://shubhadevelopers.com/api/loans")
-      .then(res => setLoans(res.data))
-      .catch(err => console.error(err));
+  const fetchLoans = useCallback(() => {
+    api
+      .get("/api/loans")
+      .then((res) => setLoans(res.data))
+      .catch((err) => console.error(err));
   }, []);
 
+  useEffect(() => {
+    fetchLoans();
+  }, [fetchLoans]);
+
   return (
-      <>
-    <div className="mb-6"><LoanForm /></div>
-    <div>
-      <h1 className="text-xl font-bold mb-4">Loans</h1>
-      <ul>
-        {loans.map(l => (
-          <li key={l.id}>
-            {l.bank_name} - {l.status}
-          </li>
-        ))}
-      </ul>
-    </div>
-      </>
+    <>
+      <div className="mb-6">
+        <LoanForm onSuccess={fetchLoans} />
+      </div>
+      <div>
+        <h1 className="text-xl font-bold mb-4">Loans</h1>
+        <ul>
+          {loans.map(l => (
+            <li key={l.id}>
+              {l.bank_name} - {l.status}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
   );
 }
+
