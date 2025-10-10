@@ -1,8 +1,9 @@
 // import axios from "axios";
+import { API_BASE_URL } from "../config";
 
 export default function Login() {
   const googleLogin = () => {
-    window.location.href = "https://shubhadevelopers.com/api/users/google";
+    window.location.href = `${API_BASE_URL}/api/users/google`;
   };
 
   return (
@@ -17,3 +18,4 @@ export default function Login() {
     </div>
   );
 }
+
