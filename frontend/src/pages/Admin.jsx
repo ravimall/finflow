@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "../lib/api";
 
 export default function Admin() {
   const [agents, setAgents] = useState([]);
 
   useEffect(() => {
-    axios
-      .get("https://shubhadevelopers.com/api/users")
+    api
+      .get("/api/users")
       .then((r) => setAgents(r.data))
       .catch(() => {});
   }, []);
@@ -18,3 +18,4 @@ export default function Admin() {
     </div>
   );
 }
+
