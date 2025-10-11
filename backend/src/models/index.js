@@ -37,11 +37,19 @@ User.hasMany(CustomerNote, { foreignKey: "user_id", as: "customerNotes" });
 AuditLog.belongsTo(User, { foreignKey: "user_id", as: "user" });
 AuditLog.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
 
-// Sync models (in dev only)
+// Sync models (development only)
 async function syncModels() {
-  await sequelize.sync({ alter: true });
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd) {
+    return;
+  }
+
+  await sequelize.sync({ alter: false });
 }
-syncModels();
+
+syncModels().catch((error) => {
+  console.error("Failed to run Sequelize sync", error);
+});
 
 module.exports = {
   sequelize,

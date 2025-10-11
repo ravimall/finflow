@@ -3,7 +3,7 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
 const Loan = sequelize.define(
-  "loans",
+  "Loan",
   {
     customer_id: { type: DataTypes.INTEGER, allowNull: false },
     bank_id: { type: DataTypes.INTEGER, allowNull: true },
@@ -15,7 +15,9 @@ const Loan = sequelize.define(
     notes: { type: DataTypes.TEXT },
   },
   {
+    tableName: "loans",
     timestamps: true,
+    underscored: true,
     createdAt: "created_at",
     updatedAt: "updated_at",
   }
