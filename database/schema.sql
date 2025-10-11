@@ -12,6 +12,21 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS config_statuses (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('customer','loan')),
+    name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS config_banks (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS customers (
     id SERIAL PRIMARY KEY,
     customer_id VARCHAR(50) UNIQUE NOT NULL,
@@ -21,6 +36,8 @@ CREATE TABLE IF NOT EXISTS customers (
     address TEXT,
     status VARCHAR(50) DEFAULT 'Booking',
     created_by INT REFERENCES users(id) ON DELETE SET NULL,
+    primary_agent_id INT REFERENCES users(id) ON DELETE SET NULL,
+    dropbox_folder_path VARCHAR(1024),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -28,7 +45,7 @@ CREATE TABLE IF NOT EXISTS customer_agents (
     id SERIAL PRIMARY KEY,
     customer_id INT REFERENCES customers(id) ON DELETE CASCADE,
     agent_id INT REFERENCES users(id) ON DELETE CASCADE,
-    permission VARCHAR(20) NOT NULL CHECK (permission IN ('view','edit')),
+    permission VARCHAR(20) NOT NULL DEFAULT 'edit' CHECK (permission IN ('view','edit')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (customer_id, agent_id)
 );
@@ -36,6 +53,7 @@ CREATE TABLE IF NOT EXISTS customer_agents (
 CREATE TABLE IF NOT EXISTS loans (
     id SERIAL PRIMARY KEY,
     customer_id INT REFERENCES customers(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES config_banks(id) ON DELETE SET NULL,
     bank_name VARCHAR(150) NOT NULL,
     applied_amount NUMERIC(15,2),
     approved_amount NUMERIC(15,2),

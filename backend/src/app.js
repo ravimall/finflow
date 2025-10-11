@@ -58,12 +58,16 @@ const customerRoutes = require("./routes/customerRoutes");
 const loanRoutes = require("./routes/loanRoutes");
 const documentRoutes = require("./routes/documentRoutes");
 const reportRoutes = require("./routes/reportRoutes");
+const adminConfigRoutes = require("./routes/adminConfigRoutes");
+const configRoutes = require("./routes/configRoutes");
 
 app.use("/api/users", userRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/config", configRoutes);
+app.use("/api/admin/config", adminConfigRoutes);
 
 // -----------------------------
 // ? Root route
