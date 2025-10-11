@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { fetchCustomerDropboxDocuments } from "../services/documents";
 
 export default function Documents() {
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [files, setFiles] = useState([]);
+  const [folderPath, setFolderPath] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,14 +30,27 @@ export default function Documents() {
 
     setLoading(true);
     setError("");
-    api
-      .get(`/api/documents/customer/${selectedCustomer}/dropbox`)
-      .then((res) => setFiles(res.data))
-      .catch((err) => setError(err.response?.data?.error || "Unable to load files"))
+
+    fetchCustomerDropboxDocuments(selectedCustomer)
+      .then(({ entries, path }) => {
+        setFiles(Array.isArray(entries) ? entries : []);
+        setFolderPath(path);
+      })
+      .catch((err) => {
+        const message = err.response?.data?.error || err.message || "Unable to load files";
+        setError(message);
+        setFiles([]);
+        setFolderPath(null);
+      })
       .finally(() => setLoading(false));
   }, [selectedCustomer]);
 
   const hasCustomers = customers.length > 0;
+  const safeFiles = Array.isArray(files) ? files : [];
+  if (!Array.isArray(files)) {
+    // eslint-disable-next-line no-console
+    console.assert(Array.isArray(files), "Documents must be an array. Received:", files);
+  }
 
   return (
     <div className="space-y-6">
@@ -61,9 +76,12 @@ export default function Documents() {
       ) : (
         <>
           {loading && <p className="text-sm text-gray-500">Loading files...</p>}
+          {!loading && folderPath && (
+            <p className="text-xs text-gray-500">Folder: {folderPath}</p>
+          )}
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          {files.length === 0 && !loading ? (
+          {safeFiles.length === 0 && !loading ? (
             <p className="text-sm text-gray-600">No files in Dropbox for this customer.</p>
           ) : (
             <div className="overflow-x-auto border rounded">
@@ -77,7 +95,7 @@ export default function Documents() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {files.map((file) => (
+                  {safeFiles.map((file) => (
                     <tr key={file.id}>
                       <td className="px-4 py-2">{file.name}</td>
                       <td className="px-4 py-2">{formatBytes(file.size)}</td>
