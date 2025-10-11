@@ -17,7 +17,7 @@ const Loan = sequelize.define(
   {
     timestamps: true,
     createdAt: "created_at",
-    updatedAt: false,
+    updatedAt: "updated_at",
   }
 );
 

@@ -12,8 +12,14 @@ const INITIAL_FORM = {
   notes: "",
 };
 
-export default function LoanForm({ onSuccess }) {
-  const [form, setForm] = useState(INITIAL_FORM);
+export default function LoanForm({
+  onSuccess,
+  initialCustomerId = "",
+  disableCustomerSelection = false,
+  customerName = "",
+  showSuccessAlert = true,
+}) {
+  const [form, setForm] = useState({ ...INITIAL_FORM, customer_id: initialCustomerId ? String(initialCustomerId) : "" });
   const [customers, setCustomers] = useState([]);
   const [banks, setBanks] = useState([]);
   const [statuses, setStatuses] = useState([]);
@@ -36,6 +42,12 @@ export default function LoanForm({ onSuccess }) {
       .then((res) => setStatuses(res.data))
       .catch(() => setStatuses([]));
   }, []);
+
+  useEffect(() => {
+    if (initialCustomerId) {
+      setForm((prev) => ({ ...prev, customer_id: String(initialCustomerId) }));
+    }
+  }, [initialCustomerId]);
 
   useEffect(() => {
     if (!form.status && statuses.length > 0) {
@@ -77,7 +89,9 @@ export default function LoanForm({ onSuccess }) {
       const defaultStatus = statuses[0]?.name ?? "";
       setForm({ ...INITIAL_FORM, status: defaultStatus });
       onSuccess?.();
-      alert("Loan created successfully");
+      if (showSuccessAlert) {
+        alert("Loan created successfully");
+      }
     } catch (err) {
       setError(err.response?.data?.error || "Unable to create loan");
     } finally {
@@ -89,20 +103,29 @@ export default function LoanForm({ onSuccess }) {
     <form onSubmit={submit} className="space-y-3">
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="grid gap-3 md:grid-cols-2">
-        <select
-          name="customer_id"
-          value={form.customer_id}
-          onChange={handle}
-          className="border p-2 rounded"
-          required
-        >
-          <option value="">Select customer</option>
-          {customers.map((customer) => (
-            <option key={customer.id} value={customer.id}>
-              {customer.customer_id} — {customer.name}
-            </option>
-          ))}
-        </select>
+        {disableCustomerSelection ? (
+          <div className="flex flex-col">
+            <label className="text-xs font-medium text-gray-500">Customer</label>
+            <div className="rounded border bg-gray-50 p-2 text-sm text-gray-700">
+              {customerName || "Selected customer"}
+            </div>
+          </div>
+        ) : (
+          <select
+            name="customer_id"
+            value={form.customer_id}
+            onChange={handle}
+            className="border p-2 rounded"
+            required
+          >
+            <option value="">Select customer</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.customer_id} — {customer.name}
+              </option>
+            ))}
+          </select>
+        )}
         <select
           name="status"
           value={form.status}
@@ -181,7 +204,11 @@ export default function LoanForm({ onSuccess }) {
       />
       <button
         type="submit"
-        disabled={submitting || !form.customer_id || (!form.bank_id && !form.bank_name)}
+        disabled={
+          submitting ||
+          !form.customer_id ||
+          (!form.bank_id && !form.bank_name)
+        }
         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
       >
         {submitting ? "Saving..." : "Create loan"}

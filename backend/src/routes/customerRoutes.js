@@ -7,8 +7,11 @@ const {
   sequelize,
   Customer,
   CustomerAgent,
+  CustomerNote,
   User,
+  Loan,
   ConfigStatus,
+  ConfigBank,
 } = require("../models");
 const auth = require("../middleware/auth");
 const {
@@ -412,10 +415,12 @@ async function handleAgentAssignment(req, res) {
         await assignment.update({ permission }, { transaction });
       }
 
-      await customerForUpdate.update(
-        { primary_agent_id: assignedAgent.id },
-        { transaction }
-      );
+      const updatePayload = {
+        primary_agent_id: assignedAgent.id,
+        created_by: assignedAgent.id,
+      };
+
+      await customerForUpdate.update(updatePayload, { transaction });
 
       await provisionCustomerFolder(
         customerForUpdate,
@@ -457,8 +462,109 @@ async function handleAgentAssignment(req, res) {
   }
 }
 
+router.get("/:id/notes", auth(), async (req, res) => {
+  try {
+    await assertCustomerAccess(req.user, req.params.id);
+    const notes = await CustomerNote.findAll({
+      where: { customer_id: req.params.id },
+      include: [
+        { model: User, as: "author", attributes: ["id", "name", "email", "role"] },
+      ],
+      order: [["created_at", "DESC"]],
+    });
+    res.json(notes);
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({ error: err.message });
+  }
+});
+
+router.post(
+  "/:id/notes",
+  auth(),
+  body("note").isString().isLength({ min: 1 }).withMessage("Note is required"),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      await assertCustomerAccess(req.user, req.params.id);
+      const customer = await Customer.findByPk(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+
+      const note = await CustomerNote.create({
+        customer_id: customer.id,
+        user_id: req.user.id,
+        note: req.body.note,
+      });
+
+      const withAuthor = await CustomerNote.findByPk(note.id, {
+        include: [
+          { model: User, as: "author", attributes: ["id", "name", "email", "role"] },
+        ],
+      });
+
+      res.status(201).json(withAuthor);
+    } catch (err) {
+      const statusCode = err.statusCode || 500;
+      res.status(statusCode).json({ error: err.message });
+    }
+  }
+);
+
+router.get("/:id/loans", auth(), async (req, res) => {
+  try {
+    await assertCustomerAccess(req.user, req.params.id);
+    const loans = await Loan.findAll({
+      where: { customer_id: req.params.id },
+      include: [
+        { model: ConfigBank, as: "bank", attributes: ["id", "name"] },
+      ],
+      order: [["updated_at", "DESC"]],
+    });
+    res.json(loans);
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({ error: err.message });
+  }
+});
+
 router.post("/:id/assign-agent", auth("admin"), handleAgentAssignment);
 router.put("/:id/assign-agent", auth("admin"), handleAgentAssignment);
+
+router.get("/:id/dropbox-link", auth(), async (req, res) => {
+  try {
+    await assertCustomerAccess(req.user, req.params.id);
+    const customer = await Customer.findByPk(req.params.id, {
+      attributes: ["id", "name", "customer_id", "dropbox_folder_path"],
+      include: [
+        { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
+      ],
+    });
+
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    res.json({
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        customer_id: customer.customer_id,
+        dropbox_folder_path: customer.dropbox_folder_path,
+        primaryAgent: customer.primaryAgent,
+      },
+      documents_url: `/documents?customer_id=${customer.id}`,
+    });
+  } catch (err) {
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json({ error: err.message });
+  }
+});
 
 router.post("/:id/create-folder", auth(), async (req, res) => {
   try {

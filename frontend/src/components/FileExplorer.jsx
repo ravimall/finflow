@@ -33,7 +33,7 @@ import {
 
 const INITIAL_UPLOAD_STATE = [];
 
-export default function FileExplorer({ customerId }) {
+export default function FileExplorer({ customerId, customerName }) {
   const [files, setFiles] = useState([]);
   const [folderExists, setFolderExists] = useState(false);
   const [rootPath, setRootPath] = useState(null);
@@ -665,6 +665,15 @@ export default function FileExplorer({ customerId }) {
       onDrop={handleDrop}
       onDragOver={(event) => event.preventDefault()}
     >
+      <div className="space-y-1">
+        <h2 className="text-lg font-semibold text-gray-900">
+          {customerName ? `Dropbox files for ${customerName}` : "Dropbox files"}
+        </h2>
+        {folderExists && rootPath && (
+          <p className="text-xs text-gray-500 break-all">{rootPath}</p>
+        )}
+      </div>
+
       <AnimatePresence>
         {toast && (
           <motion.div

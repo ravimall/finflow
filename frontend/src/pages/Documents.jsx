@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import FileExplorer from "../components/FileExplorer";
 
@@ -7,6 +8,8 @@ export default function Documents() {
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const location = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     setLoading(true);
@@ -30,19 +33,61 @@ export default function Documents() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!customers.length) return;
+    const params = new URLSearchParams(location.search);
+    const queryId = params.get("customer_id");
+    const fallbackId = String(customers[0].id);
+    const hasQueryMatch = queryId && customers.some((customer) => String(customer.id) === queryId);
+
+    if (hasQueryMatch) {
+      if (selectedCustomer !== queryId) {
+        setSelectedCustomer(queryId);
+      }
+      return;
+    }
+
+    if (!selectedCustomer || !customers.some((customer) => String(customer.id) === selectedCustomer)) {
+      setSelectedCustomer(fallbackId);
+      if (queryId !== fallbackId) {
+        params.set("customer_id", fallbackId);
+        const queryString = params.toString();
+        navigate(`${location.pathname}${queryString ? `?${queryString}` : ""}`, { replace: true });
+      }
+    }
+  }, [customers, location.pathname, location.search, navigate, selectedCustomer]);
+
   const hasCustomers = customers.length > 0;
+  const selectedCustomerData = useMemo(
+    () => customers.find((customer) => String(customer.id) === String(selectedCustomer)),
+    [customers, selectedCustomer]
+  );
+
+  const handleSelectionChange = (value) => {
+    setSelectedCustomer(value);
+    const params = new URLSearchParams(location.search);
+    if (value) {
+      params.set("customer_id", value);
+    } else {
+      params.delete("customer_id");
+    }
+    const queryString = params.toString();
+    navigate(`${location.pathname}${queryString ? `?${queryString}` : ""}`, { replace: true });
+  };
 
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-xl font-bold">Dropbox documents</h1>
+          <h1 className="text-xl font-bold">
+            Documents{selectedCustomerData ? ` — ${selectedCustomerData.name}` : ""}
+          </h1>
           <p className="text-xs text-gray-500">Browse and manage customer Dropbox files.</p>
         </div>
         <div className="flex flex-col gap-2 md:flex-row md:items-center">
           <select
             value={selectedCustomer}
-            onChange={(event) => setSelectedCustomer(event.target.value)}
+            onChange={(event) => handleSelectionChange(event.target.value)}
             className="border rounded p-2 min-w-[240px]"
             disabled={!hasCustomers}
           >
@@ -69,7 +114,11 @@ export default function Documents() {
       )}
 
       {hasCustomers && selectedCustomer && (
-        <FileExplorer customerId={selectedCustomer} key={selectedCustomer} />
+        <FileExplorer
+          customerId={selectedCustomer}
+          customerName={selectedCustomerData?.name}
+          key={selectedCustomer}
+        />
       )}
     </div>
   );
