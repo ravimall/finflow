@@ -123,3 +123,48 @@ export default function Documents() {
     </div>
   );
 }
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
+
+function getFileIcon(file) {
+  if (file.is_folder) return "📁";
+  const name = file.name || "";
+  const extension = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+  switch (extension) {
+    case "pdf":
+      return "📄";
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+      return "🖼️";
+    case "xls":
+    case "xlsx":
+      return "📊";
+    case "doc":
+    case "docx":
+      return "📝";
+    case "zip":
+    case "rar":
+      return "🗜️";
+    default:
+      return "📎";
+  }
+}
