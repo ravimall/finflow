@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CustomerForm from "../components/CustomerForm";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);

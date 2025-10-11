@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import LoanForm from "../components/LoanForm";
 import LoanDrawer from "../components/LoanDrawer";
 import { AuthContext } from "../context/AuthContext";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 function formatDate(value) {
   if (!value) return "—";

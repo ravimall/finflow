@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 const INITIAL_FORM = {
   customer_id: "",

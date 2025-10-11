@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 function StatusList({ title, items, onRename, onDelete }) {
   const [editing, setEditing] = useState(null);

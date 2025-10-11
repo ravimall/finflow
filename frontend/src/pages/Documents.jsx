@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 import FileExplorer from "../components/FileExplorer";
 
 export default function Documents() {

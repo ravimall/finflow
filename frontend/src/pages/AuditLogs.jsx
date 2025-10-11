@@ -1,6 +1,6 @@
 
 import { useEffect, useState, useContext } from "react";
-import { api, authHeaders } from "../lib/api";
+import { api, authHeaders } from "../lib/api.js";
 import { AuthContext } from "../context/AuthContext";
 
 export default function AuditLogs() {

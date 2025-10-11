@@ -209,6 +209,56 @@ async function refreshDocumentLink(document) {
   return document;
 }
 
+router.get("/", auth(), async (req, res) => {
+  try {
+    let documents = [];
+
+    if (req.user.role === "admin") {
+      documents = await Document.findAll({
+        order: [["created_at", "DESC"]],
+      });
+    } else {
+      const [assignments, createdCustomers] = await Promise.all([
+        CustomerAgent.findAll({
+          where: { agent_id: req.user.id },
+          attributes: ["customer_id"],
+        }),
+        Customer.findAll({
+          where: { created_by: req.user.id },
+          attributes: ["id"],
+        }),
+      ]);
+
+      const allowedCustomerIds = new Set();
+      assignments.forEach((assignment) => {
+        if (assignment.customer_id) {
+          allowedCustomerIds.add(assignment.customer_id);
+        }
+      });
+      createdCustomers.forEach((customer) => {
+        if (customer.id) {
+          allowedCustomerIds.add(customer.id);
+        }
+      });
+
+      if (!allowedCustomerIds.size) {
+        return res.json([]);
+      }
+
+      documents = await Document.findAll({
+        where: { customer_id: { [Op.in]: Array.from(allowedCustomerIds) } },
+        order: [["created_at", "DESC"]],
+      });
+    }
+
+    const refreshed = await Promise.all(documents.map((doc) => refreshDocumentLink(doc)));
+
+    res.json(Array.isArray(refreshed) ? refreshed : []);
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Unable to fetch documents" });
+  }
+});
+
 // Multi-file upload with automatic folder provisioning
 router.post(
   "/customer/:customer_id/upload",

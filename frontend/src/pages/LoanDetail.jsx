@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 export default function LoanDetail() {
   const { id } = useParams();

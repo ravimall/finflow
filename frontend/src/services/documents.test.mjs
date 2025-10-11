@@ -1,5 +1,5 @@
 import assert from "assert";
-import { normalizeDocuments } from "./normalizeDocuments.js";
+import { normalizeDocuments } from "./documents.ts";
 
 function runTests() {
   assert.deepStrictEqual(normalizeDocuments([{ id: 1 }]), [{ id: 1 }]);

@@ -1,6 +1,6 @@
 
 import { useEffect, useState, useContext } from "react";
-import { api, authHeaders } from "../lib/api";
+import { api, authHeaders } from "../lib/api.js";
 // import { Bar } from "react-chartjs-2";
 import { AuthContext } from "../context/AuthContext";
 

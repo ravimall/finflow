@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import LoanForm from "../components/LoanForm";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 export default function Loans() {
   const [loans, setLoans] = useState([]);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { FiX } from "react-icons/fi";
-import { api } from "../lib/api";
+import { api } from "../lib/api.js";
 
 const INITIAL_FORM = {
   status: "",
