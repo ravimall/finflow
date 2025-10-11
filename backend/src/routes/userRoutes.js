@@ -8,10 +8,11 @@ require("dotenv").config();
 const router = express.Router();
 
 const User = require("../models/User");
+const auth = require("../middleware/auth");
 
 function generateToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, name: user.name },
     process.env.JWT_SECRET || "finflowjwtsecret",
     { expiresIn: "7d" }
   );
@@ -62,31 +63,60 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
-router.get("/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
+router.get(
+  "/google",
+  passport.authenticate("google", { scope: ["profile", "email"], session: false })
 );
 
-router.get("/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login-failed" }),
-  (req, res) => {
-    const token = generateToken(req.user);
-    res.json({ message: "Google login success", token, user: req.user });
-  }
-);
+router.get("/google/callback", (req, res, next) => {
+  passport.authenticate(
+    "google",
+    { failureRedirect: "/login-failed", session: false },
+    (err, user) => {
+      if (err) {
+        return next(err);
+      }
+      if (!user) {
+        return res.redirect("/login-failed");
+      }
+
+      const token = generateToken(user);
+      const defaultSuccessRedirect =
+        process.env.NODE_ENV === "production"
+          ? "https://shubhadevelopers.com/finflow/auth/callback"
+          : "http://localhost:5173/auth/callback";
+
+      const successRedirect =
+        process.env.GOOGLE_OAUTH_SUCCESS_REDIRECT || defaultSuccessRedirect;
+
+      try {
+        const redirectUrl = new URL(successRedirect);
+        redirectUrl.searchParams.set("token", token);
+        res.redirect(redirectUrl.toString());
+      } catch (parseError) {
+        res.json({ message: "Google login success", token, user });
+      }
+    }
+  )(req, res, next);
+});
 
 router.post("/create", async (req, res) => {
   try {
     const { name, email, role } = req.body;
     const user = await User.create({ name, email, role });
-//     res.json({ message: "User created successfully", user });
+    res.json({ message: "User created successfully", user });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-router.get("/", async (req, res) => {
+router.get("/", auth(), async (req, res) => {
   try {
-    const users = await User.findAll();
+    const where = {};
+    if (req.query.role) {
+      where.role = req.query.role;
+    }
+    const users = await User.findAll({ where, order: [["name", "ASC"]] });
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
