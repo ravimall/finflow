@@ -3,15 +3,40 @@ const { Dropbox } = require("dropbox");
 const fetch = require("isomorphic-fetch");
 require("dotenv").config();
 
-if (!process.env.DROPBOX_CLIENT_ID || !process.env.DROPBOX_CLIENT_SECRET || !process.env.DROPBOX_REFRESH_TOKEN) {
-  throw new Error("❌ Dropbox credentials missing. Please set DROPBOX_CLIENT_ID, DROPBOX_CLIENT_SECRET, and DROPBOX_REFRESH_TOKEN in environment.");
+const REQUIRED_VARS = [
+  "DROPBOX_CLIENT_ID",
+  "DROPBOX_CLIENT_SECRET",
+  "DROPBOX_REFRESH_TOKEN",
+];
+
+const missing = REQUIRED_VARS.filter((key) => !process.env[key]);
+if (missing.length) {
+  // eslint-disable-next-line no-console
+  console.error(
+    `❌ Dropbox configuration missing environment variables: ${missing.join(", ")}`
+  );
 }
 
 const dbx = new Dropbox({
   clientId: process.env.DROPBOX_CLIENT_ID,
   clientSecret: process.env.DROPBOX_CLIENT_SECRET,
   refreshToken: process.env.DROPBOX_REFRESH_TOKEN,
-  fetch
+  fetch,
 });
+
+async function verifyDropboxConnection() {
+  try {
+    const account = await dbx.usersGetCurrentAccount();
+    const displayName = account?.result?.name?.display_name || account?.result?.name?.familiar_name;
+    // eslint-disable-next-line no-console
+    console.info(`✅ Dropbox connected successfully as ${displayName || "unknown account"}`);
+  } catch (error) {
+    const message = error?.error?.error_summary || error?.message || "Unknown error";
+    // eslint-disable-next-line no-console
+    console.error(`❌ Dropbox connection failed: ${message}`);
+  }
+}
+
+verifyDropboxConnection();
 
 module.exports = dbx;
