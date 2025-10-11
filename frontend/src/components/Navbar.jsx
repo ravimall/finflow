@@ -37,6 +37,11 @@ export default function Navbar() {
             Documents
           </Link>
           {user.role === "admin" && (
+            <Link className="hover:text-gray-300" to="/admin">
+              Admin Config
+            </Link>
+          )}
+          {user.role === "admin" && (
             <Link className="hover:text-gray-300" to="/reports">
               Reports
             </Link>

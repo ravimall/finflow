@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Customers from "./pages/Customers";
 import CustomerDetail from "./pages/CustomerDetail";
 import Loans from "./pages/Loans";
+import LoanDetail from "./pages/LoanDetail";
 import Documents from "./pages/Documents";
 import Navbar from "./components/Navbar";
 import Admin from "./pages/Admin";
@@ -51,6 +52,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Loans />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/loans/:id"
+            element={
+              <ProtectedRoute>
+                <LoanDetail />
               </ProtectedRoute>
             }
           />

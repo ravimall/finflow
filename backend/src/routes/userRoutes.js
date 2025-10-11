@@ -8,6 +8,7 @@ require("dotenv").config();
 const router = express.Router();
 
 const User = require("../models/User");
+const auth = require("../middleware/auth");
 
 function generateToken(user) {
   return jwt.sign(
@@ -109,9 +110,13 @@ router.post("/create", async (req, res) => {
   }
 });
 
-router.get("/", async (req, res) => {
+router.get("/", auth(), async (req, res) => {
   try {
-    const users = await User.findAll();
+    const where = {};
+    if (req.query.role) {
+      where.role = req.query.role;
+    }
+    const users = await User.findAll({ where, order: [["name", "ASC"]] });
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
