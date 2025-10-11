@@ -7,6 +7,7 @@ const Document = require("./Document");
 const CustomerAgent = require("./CustomerAgent");
 const ConfigStatus = require("./ConfigStatus");
 const ConfigBank = require("./ConfigBank");
+const AuditLog = require("./AuditLog");
 
 // Define associations
 User.hasMany(Customer, { foreignKey: "created_by", as: "createdCustomers" });
@@ -27,6 +28,9 @@ Loan.belongsTo(ConfigBank, { foreignKey: "bank_id", as: "bank" });
 Customer.hasMany(Document, { foreignKey: "customer_id", as: "documents" });
 Document.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
 
+AuditLog.belongsTo(User, { foreignKey: "user_id", as: "user" });
+AuditLog.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
+
 // Sync models (in dev only)
 async function syncModels() {
   await sequelize.sync({ alter: true });
@@ -42,4 +46,5 @@ module.exports = {
   CustomerAgent,
   ConfigStatus,
   ConfigBank,
+  AuditLog,
 };
