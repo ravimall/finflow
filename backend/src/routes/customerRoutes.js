@@ -16,8 +16,33 @@ const {
   listFolder,
   combineWithinFolder,
   isLegacyDropboxPath,
+  logDropboxAction,
 } = require("../utils/dropbox");
 const { logAudit } = require("../utils/audit");
+
+function handleDropboxError(res, err, fallbackMessage) {
+  const rawMessage =
+    err?.error?.error_summary || err?.message || fallbackMessage || "Dropbox request failed";
+  const normalizedMessage = typeof rawMessage === "string" ? rawMessage : String(rawMessage);
+  const lower = normalizedMessage.toLowerCase();
+  const connectionFailed =
+    err?.status === 401 ||
+    lower.includes("invalid_access_token") ||
+    lower.includes("expired_access_token") ||
+    lower.includes("invalid_client") ||
+    lower.includes("cannot_refresh_access_token");
+
+  if (connectionFailed) {
+    // eslint-disable-next-line no-console
+    console.error(`❌ Dropbox connection failed: ${normalizedMessage}`);
+    return res
+      .status(500)
+      .json({ error: `Dropbox connection failed: ${normalizedMessage}` });
+  }
+
+  const statusCode = err?.statusCode || err?.status || 500;
+  return res.status(statusCode).json({ error: normalizedMessage });
+}
 
 async function cleanupLegacyDropboxReferences() {
   try {
@@ -473,6 +498,8 @@ router.post("/:id/create-folder", auth(), async (req, res) => {
       return outcome;
     });
 
+    logDropboxAction("create-folder", path, req.user?.id);
+
     if (created) {
       // eslint-disable-next-line no-console
       console.info(
@@ -492,8 +519,8 @@ router.post("/:id/create-folder", auth(), async (req, res) => {
       path,
     });
   } catch (err) {
-    const statusCode = err.statusCode || 400;
-    res.status(statusCode).json({ error: err.message });
+    logDropboxAction("create-folder", req.params?.id || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Unable to create Dropbox folder");
   }
 });
 
@@ -514,6 +541,8 @@ router.get("/:id/dropbox-list", auth(), async (req, res) => {
       req.query.path
     );
 
+    logDropboxAction("list", targetPath, req.user?.id);
+
     const entries = await listFolder(targetPath);
 
     res.json({
@@ -521,8 +550,8 @@ router.get("/:id/dropbox-list", auth(), async (req, res) => {
       entries,
     });
   } catch (err) {
-    const statusCode = err.statusCode || 400;
-    res.status(statusCode).json({ error: err.message });
+    logDropboxAction("list", req.query?.path || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Unable to list Dropbox entries");
   }
 });
 

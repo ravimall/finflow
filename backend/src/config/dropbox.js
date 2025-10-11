@@ -27,13 +27,17 @@ const dbx = new Dropbox({
 dbx
   .usersGetCurrentAccount()
   .then((account) => {
+    const details = account?.result || account;
     const displayName =
-      account?.result?.name?.display_name || account?.result?.name?.familiar_name || "unknown account";
+      details?.name?.display_name ||
+      details?.name?.familiar_name ||
+      details?.email ||
+      "unknown account";
     // eslint-disable-next-line no-console
     console.log(`✅ Dropbox connected as ${displayName}`);
   })
   .catch((error) => {
-    const message = error?.error?.error_summary || error?.message || "Unknown error";
+    const message = error?.message || error?.error?.error_summary || "Unknown error";
     // eslint-disable-next-line no-console
     console.error(`❌ Dropbox connection failed: ${message}`);
   });

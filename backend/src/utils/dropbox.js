@@ -1,5 +1,15 @@
 const dbx = require("../config/dropbox");
 
+function logDropboxAction(action, path, userId) {
+  const normalizedAction = action || "unknown";
+  const normalizedPath = path || "N/A";
+  const normalizedUser = typeof userId === "undefined" ? "unknown" : userId;
+  // eslint-disable-next-line no-console
+  console.log(
+    `[Dropbox] Action: ${normalizedAction}, Path: ${normalizedPath}, User: ${normalizedUser}`
+  );
+}
+
 async function ensureSharedLink(path) {
   if (!path) {
     return null;
@@ -100,8 +110,7 @@ async function ensureFolderHierarchy(path) {
 
 async function ensureCustomerFolder(agentName, customerName, customerCode) {
   const folderPath = buildCustomerFolderPath(agentName, customerName, customerCode);
-  // eslint-disable-next-line no-console
-  console.log(`[Dropbox] Creating folder: ${folderPath}`);
+  logDropboxAction("create-folder", folderPath, "system");
   const result = await ensureFolderHierarchy(folderPath);
   return { ...result, path: folderPath };
 }
@@ -192,4 +201,5 @@ module.exports = {
   ensureSharedLink,
   isLegacyDropboxPath,
   LEGACY_PATH_PREFIXES,
+  logDropboxAction,
 };

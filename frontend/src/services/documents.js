@@ -23,7 +23,7 @@ export async function fetchCustomerDropboxDocuments(customerId, params = {}) {
 
   return {
     exists: existsFlag,
-    path: body?.path ?? null,
+    path: body?.path ?? params?.path ?? null,
     files,
   };
 }
@@ -57,5 +57,48 @@ export async function uploadCustomerDocuments(customerId, files, { path, onUploa
     }
   );
 
+  return response.data;
+}
+
+export async function createDropboxSubfolder(customerId, folderName, parentPath) {
+  const response = await api.post("/api/documents/folder", {
+    customer_id: customerId,
+    folder_name: folderName,
+    parent_path: parentPath,
+  });
+  return response.data;
+}
+
+export async function deleteDropboxFiles(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    throw new Error("No paths provided");
+  }
+  const response = await api.delete("/api/documents/delete", {
+    data: { paths },
+  });
+  return response.data;
+}
+
+export async function renameDropboxFile(oldPath, newName) {
+  const response = await api.post("/api/documents/rename", {
+    old_path: oldPath,
+    new_name: newName,
+  });
+  return response.data;
+}
+
+export async function getDropboxDownloadLink(path) {
+  if (!path) throw new Error("Missing path");
+  const response = await api.get("/api/documents/download", {
+    params: { path },
+  });
+  return response.data;
+}
+
+export async function getDropboxPreviewLink(path) {
+  if (!path) throw new Error("Missing path");
+  const response = await api.get("/api/documents/preview", {
+    params: { path },
+  });
   return response.data;
 }

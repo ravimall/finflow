@@ -1,6 +1,8 @@
 // backend/src/routes/documentRoutes.js
 const express = require("express");
 const multer = require("multer");
+const path = require("path");
+const { Op } = require("sequelize");
 const dbx = require("../config/dropbox");
 const {
   sequelize,
@@ -17,12 +19,38 @@ const {
   combineWithinFolder,
   ensureSharedLink,
   isLegacyDropboxPath,
+  sanitizeSegment,
+  logDropboxAction,
 } = require("../utils/dropbox");
 const { logAudit } = require("../utils/audit");
 
 const upload = multer({ storage: multer.memoryStorage() });
 
 const router = express.Router();
+
+function handleDropboxError(res, err, fallbackMessage) {
+  const rawMessage =
+    err?.error?.error_summary || err?.message || fallbackMessage || "Dropbox request failed";
+  const normalizedMessage = typeof rawMessage === "string" ? rawMessage : String(rawMessage);
+  const lower = normalizedMessage.toLowerCase();
+  const connectionFailed =
+    err?.status === 401 ||
+    lower.includes("invalid_access_token") ||
+    lower.includes("expired_access_token") ||
+    lower.includes("invalid_client") ||
+    lower.includes("cannot_refresh_access_token");
+
+  if (connectionFailed) {
+    // eslint-disable-next-line no-console
+    console.error(`❌ Dropbox connection failed: ${normalizedMessage}`);
+    return res
+      .status(500)
+      .json({ error: `Dropbox connection failed: ${normalizedMessage}` });
+  }
+
+  const statusCode = err?.statusCode || err?.status || 500;
+  return res.status(statusCode).json({ error: normalizedMessage });
+}
 
 async function userCanAccessCustomer(user, customerId) {
   if (user.role === "admin") {
@@ -43,6 +71,54 @@ async function userCanAccessCustomer(user, customerId) {
   }
 
   return false;
+}
+
+async function findCustomerForDropboxPath(user, dropboxPath) {
+  if (!dropboxPath) {
+    return null;
+  }
+
+  const normalized = dropboxPath.toLowerCase();
+  const doc = await Document.findOne({
+    where: { file_path: normalized },
+    attributes: ["customer_id"],
+  });
+
+  if (doc) {
+    const customer = await Customer.findByPk(doc.customer_id);
+    if (customer) {
+      const allowed = await userCanAccessCustomer(user, customer.id);
+      if (allowed) {
+        return customer;
+      }
+      const err = new Error("Forbidden");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
+
+  const customers = await Customer.findAll({
+    where: { dropbox_folder_path: { [Op.ne]: null } },
+    attributes: ["id", "dropbox_folder_path"],
+  });
+
+  for (const customer of customers) {
+    if (!customer.dropbox_folder_path) {
+      continue;
+    }
+
+    if (normalized.startsWith(customer.dropbox_folder_path.toLowerCase())) {
+      const allowed = await userCanAccessCustomer(user, customer.id);
+      if (allowed) {
+        return customer;
+      }
+      const err = new Error("Forbidden");
+      err.statusCode = 403;
+      throw err;
+    }
+  }
+
+  return null;
 }
 
 async function resolveFolderAgent(customer, transaction) {
@@ -111,6 +187,10 @@ function sanitizeFileName(name) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+function sanitizeFolderName(name) {
+  return sanitizeSegment(name, "Folder");
+}
+
 async function refreshDocumentLink(document) {
   if (!document.file_path) {
     return document;
@@ -169,11 +249,15 @@ router.post(
       const destinationFolder = combineWithinFolder(baseFolder, req.body.path);
       await ensureFolderHierarchy(destinationFolder);
 
+      logDropboxAction("upload", destinationFolder, req.user?.id);
+
       const uploaded = [];
       for (const file of files) {
         const dropboxPath = `${destinationFolder}/${Date.now()}_${sanitizeFileName(
           file.originalname
         )}`;
+
+        logDropboxAction("upload", dropboxPath, req.user?.id);
 
         const uploadResponse = await dbx.filesUpload({
           path: dropboxPath,
@@ -206,14 +290,13 @@ router.post(
           })
         );
 
-        // eslint-disable-next-line no-console
-        console.info(
-          `⬆️ Uploaded ${document.file_name} (${document.size_bytes} bytes) for customer ${customer.id} by user ${req.user.id} to ${uploadPath}`
-        );
-
         uploaded.push({
-          document,
-          download_url: sharedLink,
+          id: document.id,
+          name: document.file_name,
+          path: document.file_path,
+          size: document.size_bytes,
+          url: sharedLink,
+          mime_type: document.mime_type,
         });
       }
 
@@ -223,14 +306,8 @@ router.post(
         folder: destinationFolder,
       });
     } catch (err) {
-      const statusCode = err.statusCode || 500;
-      // eslint-disable-next-line no-console
-      console.error(
-        `❌ Dropbox upload failed for customer ${req.params.customer_id} by user ${req.user?.id}: ${
-          err.message
-        }`
-      );
-      res.status(statusCode).json({ error: err.message });
+      logDropboxAction("upload", req.body?.path || "N/A", req.user?.id);
+      handleDropboxError(res, err, "Dropbox upload failed");
     }
   }
 );
@@ -287,6 +364,8 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
       req.query.path
     );
 
+    logDropboxAction("list", targetPath, req.user?.id);
+
     const entries = await listFolder(targetPath);
 
     const files = entries.map((entry) => ({
@@ -300,24 +379,244 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
       url: entry.is_folder ? null : entry.download_url,
     }));
 
-    // eslint-disable-next-line no-console
-    console.info(
-      `📄 Listed ${files.length} Dropbox entries for customer ${customer.id} at ${targetPath}`
-    );
-
     res.json({
       exists: true,
       path: targetPath,
       files,
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(
-      `❌ Failed to list Dropbox files for customer ${req.params.customer_id}: ${
-        err.message
-      }`
+    logDropboxAction("list", req.query?.path || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Unable to list Dropbox files");
+  }
+});
+
+router.get("/download", auth(), async (req, res) => {
+  try {
+    const { path: dropboxPath } = req.query;
+    if (!dropboxPath) {
+      return res.status(400).json({ error: "Path is required" });
+    }
+
+    const customer = await findCustomerForDropboxPath(req.user, dropboxPath);
+    if (!customer) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    logDropboxAction("download", dropboxPath, req.user?.id);
+
+    const linkRes = await dbx.filesGetTemporaryLink({ path: dropboxPath });
+    const url = linkRes?.result?.link;
+
+    if (!url) {
+      return res.status(500).json({ error: "Unable to generate download link" });
+    }
+
+    res.json({ url });
+  } catch (err) {
+    logDropboxAction("download", req.query?.path || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Dropbox download failed");
+  }
+});
+
+router.get("/preview", auth(), async (req, res) => {
+  try {
+    const { path: dropboxPath } = req.query;
+    if (!dropboxPath) {
+      return res.status(400).json({ error: "Path is required" });
+    }
+
+    const customer = await findCustomerForDropboxPath(req.user, dropboxPath);
+    if (!customer) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    logDropboxAction("preview", dropboxPath, req.user?.id);
+
+    const linkRes = await dbx.filesGetTemporaryLink({ path: dropboxPath });
+    const url = linkRes?.result?.link;
+
+    if (!url) {
+      return res.status(500).json({ error: "Unable to generate preview link" });
+    }
+
+    res.json({ preview_url: url });
+  } catch (err) {
+    logDropboxAction("preview", req.query?.path || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Dropbox preview failed");
+  }
+});
+
+router.post("/rename", auth(), async (req, res) => {
+  try {
+    const { old_path: oldPath, new_name: providedName } = req.body;
+    if (!oldPath || !providedName) {
+      return res.status(400).json({ error: "old_path and new_name are required" });
+    }
+
+    const customer = await findCustomerForDropboxPath(req.user, oldPath);
+    if (!customer) {
+      return res.status(404).json({ error: "File not found" });
+    }
+
+    const baseDir = path.posix.dirname(oldPath);
+    const ext = path.posix.extname(oldPath);
+    const sanitized = sanitizeFileName(providedName);
+    const finalName = sanitized.includes(".") ? sanitized : `${sanitized}${ext}`;
+
+    if (!finalName || finalName.includes("/")) {
+      return res.status(400).json({ error: "Invalid new file name" });
+    }
+
+    const newPath = `${baseDir}/${finalName}`;
+
+    logDropboxAction("rename", oldPath, req.user?.id);
+
+    const moveRes = await dbx.filesMoveV2({
+      from_path: oldPath,
+      to_path: newPath,
+      autorename: false,
+    });
+
+    const metadata = moveRes?.result?.metadata;
+    const newPathLower = metadata?.path_lower || newPath.toLowerCase();
+    const sharedLink = await ensureSharedLink(newPathLower);
+
+    const existingDoc = await Document.findOne({ where: { file_path: oldPath.toLowerCase() } });
+    if (existingDoc) {
+      await existingDoc.update({
+        file_name: finalName,
+        file_path: newPathLower,
+        file_url: sharedLink,
+      });
+    }
+
+    await logAudit(
+      req.user.id,
+      customer.id,
+      "document.renamed",
+      JSON.stringify({ from: oldPath, to: newPathLower })
     );
-    res.status(500).json({ error: err.message });
+
+    res.json({
+      message: "File renamed",
+      file: {
+        id: metadata?.id,
+        name: metadata?.name || finalName,
+        path: metadata?.path_display || metadata?.path_lower || newPath,
+        size: metadata?.size || null,
+        client_modified: metadata?.client_modified || null,
+        url: sharedLink,
+      },
+    });
+  } catch (err) {
+    logDropboxAction("rename", req.body?.old_path || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Dropbox rename failed");
+  }
+});
+
+router.delete("/delete", auth(), async (req, res) => {
+  try {
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths : [];
+    if (!paths.length) {
+      return res.status(400).json({ error: "paths array is required" });
+    }
+
+    let deleted = 0;
+    const failures = [];
+
+    for (const candidate of paths) {
+      try {
+        const customer = await findCustomerForDropboxPath(req.user, candidate);
+        if (!customer) {
+          failures.push({ path: candidate, error: "Not found" });
+          continue;
+        }
+
+        logDropboxAction("delete", candidate, req.user?.id);
+
+        await dbx.filesDeleteV2({ path: candidate });
+        await Document.destroy({ where: { file_path: candidate.toLowerCase() } });
+        await logAudit(
+          req.user.id,
+          customer.id,
+          "document.deleted",
+          JSON.stringify({ path: candidate })
+        );
+
+        deleted += 1;
+      } catch (error) {
+        failures.push({ path: candidate, error: error.message });
+        logDropboxAction("delete", candidate, req.user?.id);
+      }
+    }
+
+    res.json({
+      message: `Deleted ${deleted} item(s)`,
+      deleted,
+      failures,
+    });
+  } catch (err) {
+    logDropboxAction("delete", req.body?.paths?.join?.(",") || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Dropbox delete failed");
+  }
+});
+
+router.post("/folder", auth(), async (req, res) => {
+  try {
+    const { customer_id: customerId, folder_name: folderName, parent_path: parentPath } =
+      req.body || {};
+
+    if (!customerId || !folderName) {
+      return res.status(400).json({ error: "customer_id and folder_name are required" });
+    }
+
+    const customer = await Customer.findByPk(customerId);
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const allowed = await userCanAccessCustomer(req.user, customer.id);
+    if (!allowed) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { path: baseFolder } = await sequelize.transaction(async (transaction) => {
+      const customerForUpdate = await Customer.findByPk(customer.id, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      const outcome = await ensureCustomerFolderPath(
+        customerForUpdate,
+        req.user.id,
+        transaction
+      );
+
+      return { path: outcome.path };
+    });
+
+    const resolvedParent = combineWithinFolder(baseFolder, parentPath);
+    const folderSegment = sanitizeFolderName(folderName);
+    const newFolderPath = `${resolvedParent}/${folderSegment}`;
+
+    logDropboxAction("create-folder", newFolderPath, req.user?.id);
+
+    await ensureFolderHierarchy(newFolderPath);
+
+    await logAudit(
+      req.user.id,
+      customer.id,
+      "dropbox.folder.created.manual",
+      JSON.stringify({ path: newFolderPath })
+    );
+
+    res.json({
+      message: "Folder created",
+      path: newFolderPath,
+    });
+  } catch (err) {
+    logDropboxAction("create-folder", req.body?.folder_name || "N/A", req.user?.id);
+    handleDropboxError(res, err, "Dropbox folder creation failed");
   }
 });
 
