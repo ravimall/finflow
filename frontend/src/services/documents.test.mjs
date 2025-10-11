@@ -4,6 +4,7 @@ import { normalizeDocuments } from "./normalizeDocuments.js";
 function runTests() {
   assert.deepStrictEqual(normalizeDocuments([{ id: 1 }]), [{ id: 1 }]);
   assert.deepStrictEqual(normalizeDocuments({ entries: [{ id: 2 }] }), [{ id: 2 }]);
+  assert.deepStrictEqual(normalizeDocuments({ files: [{ id: 21 }] }), [{ id: 21 }]);
   assert.deepStrictEqual(normalizeDocuments({ documents: [{ id: 3 }] }), [{ id: 3 }]);
   assert.deepStrictEqual(normalizeDocuments({ items: [{ id: 4 }] }), [{ id: 4 }]);
   assert.deepStrictEqual(normalizeDocuments({ data: [{ id: 5 }] }), [{ id: 5 }]);

@@ -15,6 +15,7 @@ const {
   ensureFolderHierarchy,
   listFolder,
   combineWithinFolder,
+  ensureSharedLink,
 } = require("../utils/dropbox");
 const { logAudit } = require("../utils/audit");
 
@@ -177,14 +178,14 @@ router.post(
         });
 
         const uploadPath = uploadResponse.result.path_lower;
-        const linkRes = await dbx.filesGetTemporaryLink({ path: uploadPath });
+        const sharedLink = await ensureSharedLink(uploadPath);
 
         const document = await Document.create({
           customer_id: customer.id,
           uploaded_by: req.user.id,
           file_name: file.originalname,
           file_path: uploadPath,
-          file_url: linkRes.result.link,
+          file_url: sharedLink,
           size_bytes: file.size,
           mime_type: file.mimetype,
         });
@@ -200,9 +201,14 @@ router.post(
           })
         );
 
+        // eslint-disable-next-line no-console
+        console.info(
+          `⬆️ Uploaded ${document.file_name} (${document.size_bytes} bytes) for customer ${customer.id} by user ${req.user.id} to ${uploadPath}`
+        );
+
         uploaded.push({
           document,
-          download_url: linkRes.result.link,
+          download_url: sharedLink,
         });
       }
 
@@ -212,8 +218,13 @@ router.post(
         folder: destinationFolder,
       });
     } catch (err) {
-      console.error(err);
       const statusCode = err.statusCode || 500;
+      // eslint-disable-next-line no-console
+      console.error(
+        `❌ Dropbox upload failed for customer ${req.params.customer_id} by user ${req.user?.id}: ${
+          err.message
+        }`
+      );
       res.status(statusCode).json({ error: err.message });
     }
   }
@@ -255,7 +266,11 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
     }
 
     if (!customer.dropbox_folder_path) {
-      return res.json({ path: null, entries: [] });
+      // eslint-disable-next-line no-console
+      console.warn(
+        `ℹ️ Dropbox folder missing for customer ${customer.id} when listing files`
+      );
+      return res.json({ exists: false, path: null, files: [] });
     }
 
     const targetPath = combineWithinFolder(
@@ -265,11 +280,34 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
 
     const entries = await listFolder(targetPath);
 
+    const files = entries.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      path: entry.path_display || entry.path_lower,
+      size: entry.is_folder ? null : entry.size,
+      client_modified: entry.client_modified,
+      server_modified: entry.server_modified,
+      is_folder: entry.is_folder,
+      url: entry.is_folder ? null : entry.download_url,
+    }));
+
+    // eslint-disable-next-line no-console
+    console.info(
+      `📄 Listed ${files.length} Dropbox entries for customer ${customer.id} at ${targetPath}`
+    );
+
     res.json({
+      exists: true,
       path: targetPath,
-      entries,
+      files,
     });
   } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `❌ Failed to list Dropbox files for customer ${req.params.customer_id}: ${
+        err.message
+      }`
+    );
     res.status(500).json({ error: err.message });
   }
 });

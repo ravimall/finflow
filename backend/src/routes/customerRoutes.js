@@ -104,12 +104,23 @@ async function provisionCustomerFolder(customer, agent, transaction, userId) {
   }
 
   if (created) {
+    // eslint-disable-next-line no-console
+    console.info(
+      `📁 Created Dropbox folder ${path} for customer ${customer.id} (agent ${
+        agent?.id || "admin"
+      })`
+    );
     await logAudit(
       userId,
       customer.id,
       "dropbox.folder.created",
       JSON.stringify({ path }),
       transaction
+    );
+  } else {
+    // eslint-disable-next-line no-console
+    console.info(
+      `📁 Dropbox folder already present for customer ${customer.id} at ${path}`
     );
   }
 
@@ -428,8 +439,22 @@ router.post("/:id/create-folder", auth(), async (req, res) => {
       return outcome;
     });
 
+    if (created) {
+      // eslint-disable-next-line no-console
+      console.info(
+        `📁 Manual Dropbox folder creation succeeded for customer ${customer.id} (agent ${
+          customer.primary_agent_id || "admin"
+        }) at ${path}`
+      );
+    } else {
+      // eslint-disable-next-line no-console
+      console.info(
+        `ℹ️ Dropbox folder already exists for customer ${customer.id} at ${path}`
+      );
+    }
+
     res.json({
-      message: created ? "Dropbox folder created" : "Dropbox folder verified",
+      message: created ? "Dropbox folder created" : "Folder already exists",
       path,
     });
   } catch (err) {
