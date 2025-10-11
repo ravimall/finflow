@@ -24,19 +24,18 @@ const dbx = new Dropbox({
   fetch,
 });
 
-async function verifyDropboxConnection() {
-  try {
-    const account = await dbx.usersGetCurrentAccount();
-    const displayName = account?.result?.name?.display_name || account?.result?.name?.familiar_name;
+dbx
+  .usersGetCurrentAccount()
+  .then((account) => {
+    const displayName =
+      account?.result?.name?.display_name || account?.result?.name?.familiar_name || "unknown account";
     // eslint-disable-next-line no-console
-    console.info(`✅ Dropbox connected successfully as ${displayName || "unknown account"}`);
-  } catch (error) {
+    console.log(`✅ Dropbox connected as ${displayName}`);
+  })
+  .catch((error) => {
     const message = error?.error?.error_summary || error?.message || "Unknown error";
     // eslint-disable-next-line no-console
     console.error(`❌ Dropbox connection failed: ${message}`);
-  }
-}
-
-verifyDropboxConnection();
+  });
 
 module.exports = dbx;

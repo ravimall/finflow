@@ -44,25 +44,33 @@ async function ensureSharedLink(path) {
   }
 }
 
+const LEGACY_PATH_PREFIXES = ["/Apps/FinFlow/finflow/", "/finflow/"];
+
 function sanitizeSegment(value, fallback = "unknown") {
   const normalized = (value || fallback)
     .toString()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9\s-_]/g, "")
+    .replace(/[^\w\s]/g, "")
     .trim();
+
   const collapsed = normalized.replace(/\s+/g, "_");
   return collapsed || fallback;
 }
 
-function buildCustomerFolderPath(agentName, customerName, customerCode) {
-  const segments = [
-    "finflow",
-    sanitizeSegment(agentName, "admin"),
-    `${sanitizeSegment(customerName, "customer")}_${customerCode}`,
-  ];
+function buildCustomerFolderPath(agentName, customerName) {
+  const safeAgent = sanitizeSegment(agentName, "admin");
+  const safeCustomer = sanitizeSegment(customerName, "customer");
+  return `/FinFlow/${safeAgent}/${safeCustomer}`;
+}
 
-  return `/${segments.join("/")}`;
+function isLegacyDropboxPath(path) {
+  if (!path) {
+    return false;
+  }
+
+  const lower = path.toLowerCase();
+  return LEGACY_PATH_PREFIXES.some((prefix) => lower.startsWith(prefix.toLowerCase()));
 }
 
 async function ensureFolderHierarchy(path) {
@@ -92,6 +100,8 @@ async function ensureFolderHierarchy(path) {
 
 async function ensureCustomerFolder(agentName, customerName, customerCode) {
   const folderPath = buildCustomerFolderPath(agentName, customerName, customerCode);
+  // eslint-disable-next-line no-console
+  console.log(`[Dropbox] Creating folder: ${folderPath}`);
   const result = await ensureFolderHierarchy(folderPath);
   return { ...result, path: folderPath };
 }
@@ -180,4 +190,6 @@ module.exports = {
   listFolder,
   combineWithinFolder,
   ensureSharedLink,
+  isLegacyDropboxPath,
+  LEGACY_PATH_PREFIXES,
 };

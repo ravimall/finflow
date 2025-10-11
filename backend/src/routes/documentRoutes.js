@@ -16,6 +16,7 @@ const {
   listFolder,
   combineWithinFolder,
   ensureSharedLink,
+  isLegacyDropboxPath,
 } = require("../utils/dropbox");
 const { logAudit } = require("../utils/audit");
 
@@ -72,8 +73,12 @@ async function resolveFolderAgent(customer, transaction) {
 }
 
 async function ensureCustomerFolderPath(customer, actingUserId, transaction) {
-  if (customer.dropbox_folder_path) {
+  if (customer.dropbox_folder_path && !isLegacyDropboxPath(customer.dropbox_folder_path)) {
     return { path: customer.dropbox_folder_path, created: false };
+  }
+
+  if (customer.dropbox_folder_path && isLegacyDropboxPath(customer.dropbox_folder_path)) {
+    await customer.update({ dropbox_folder_path: null }, { transaction });
   }
 
   const agent = await resolveFolderAgent(customer, transaction);
@@ -263,6 +268,10 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
     const canAccess = await userCanAccessCustomer(req.user, customer.id);
     if (!canAccess) {
       return res.status(403).json({ error: "Forbidden" });
+    }
+
+    if (customer.dropbox_folder_path && isLegacyDropboxPath(customer.dropbox_folder_path)) {
+      await customer.update({ dropbox_folder_path: null });
     }
 
     if (!customer.dropbox_folder_path) {

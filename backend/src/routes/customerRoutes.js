@@ -15,8 +15,37 @@ const {
   ensureCustomerFolder,
   listFolder,
   combineWithinFolder,
+  isLegacyDropboxPath,
 } = require("../utils/dropbox");
 const { logAudit } = require("../utils/audit");
+
+async function cleanupLegacyDropboxReferences() {
+  try {
+    const [updated] = await Customer.update(
+      { dropbox_folder_path: null },
+      {
+        where: {
+          dropbox_folder_path: {
+            [Op.or]: [
+              { [Op.like]: "/Apps/FinFlow/finflow/%" },
+              { [Op.like]: "/finflow/%" },
+            ],
+          },
+        },
+      }
+    );
+
+    if (updated > 0) {
+      // eslint-disable-next-line no-console
+      console.info(`🧹 Cleared ${updated} legacy Dropbox folder references`);
+    }
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.error(`❌ Failed to clear legacy Dropbox folder references: ${error.message}`);
+  }
+}
+
+cleanupLegacyDropboxReferences();
 
 async function generateCustomerCode(transaction) {
   const lastCustomer = await Customer.findOne({
@@ -93,6 +122,11 @@ async function ensureAgentAssignment(customerId, agentId, transaction) {
 
 async function provisionCustomerFolder(customer, agent, transaction, userId) {
   const agentLabel = agent?.name || agent?.email || "admin";
+
+  if (isLegacyDropboxPath(customer.dropbox_folder_path)) {
+    await customer.update({ dropbox_folder_path: null }, { transaction });
+  }
+
   const { path, created } = await ensureCustomerFolder(
     agentLabel,
     customer.name,
