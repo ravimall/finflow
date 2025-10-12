@@ -13,3 +13,4 @@ Backend for FinFlow Phase-1: Customer Booking & Loan Tracking App.
 ## Notes
 - Dropbox credentials must be set via environment variables and never committed to source control.
 - Database schema is available at `database/schema.sql`.
+- Always run Sequelize migrations during deployment; `sequelize.sync()` is disabled in production to avoid destructive schema changes.
