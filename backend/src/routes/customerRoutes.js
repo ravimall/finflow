@@ -1,6 +1,6 @@
 const express = require("express");
 const { body, validationResult } = require("express-validator");
-const { Op } = require("sequelize");
+const { Op, QueryTypes } = require("sequelize");
 const router = express.Router();
 
 const {
@@ -76,19 +76,20 @@ async function cleanupLegacyDropboxReferences() {
 cleanupLegacyDropboxReferences();
 
 async function generateCustomerCode(transaction) {
-  const lastCustomer = await Customer.findOne({
-    attributes: ["customer_id"],
-    order: [[sequelize.literal("CAST(SUBSTRING(customer_id, 5) AS INTEGER)"), "DESC"]],
-    transaction,
-    lock: transaction.LOCK.UPDATE,
-  });
+  const lastSequence = await sequelize.query(
+    `SELECT COALESCE(NULLIF(REGEXP_REPLACE(customer_id, '\\D', '', 'g'), '')::int, 0) AS seq
+       FROM customers
+      ORDER BY seq DESC
+      LIMIT 1
+      FOR UPDATE`,
+    {
+      transaction,
+      plain: true,
+      type: QueryTypes.SELECT,
+    }
+  );
 
-  if (!lastCustomer) {
-    return "CUST0001";
-  }
-
-  const match = lastCustomer.customer_id.match(/(\d+)$/);
-  const lastNumber = match ? parseInt(match[1], 10) : 0;
+  const lastNumber = lastSequence?.seq ? parseInt(lastSequence.seq, 10) : 0;
   const nextNumber = lastNumber + 1;
   return `CUST${String(nextNumber).padStart(4, "0")}`;
 }

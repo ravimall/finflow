@@ -137,6 +137,56 @@ export default function FileExplorer({ customerId, customerName }) {
     }
   }, [customerId, fetchFiles, resetState]);
 
+  const safeFiles = useMemo(() => {
+    if (!Array.isArray(files)) {
+      // eslint-disable-next-line no-console
+      console.assert(Array.isArray(files), "Documents must be an array. Received:", files);
+      return [];
+    }
+    return files;
+  }, [files]);
+
+  const sortedFiles = useMemo(() => {
+    const data = [...safeFiles];
+    const direction = sortState.direction === "asc" ? 1 : -1;
+    const getComparable = (file) => {
+      switch (sortState.key) {
+        case "size":
+          return file.size || 0;
+        case "modified": {
+          const value = Date.parse(file.client_modified || file.server_modified || 0);
+          return Number.isNaN(value) ? 0 : value;
+        }
+        case "name":
+        default:
+          return (file.name || "").toLowerCase();
+      }
+    };
+
+    data.sort((a, b) => {
+      if (a.is_folder && !b.is_folder) return -1;
+      if (!a.is_folder && b.is_folder) return 1;
+      const aVal = getComparable(a);
+      const bVal = getComparable(b);
+      if (typeof aVal === "string" && typeof bVal === "string") {
+        return aVal.localeCompare(bVal) * direction;
+      }
+      if (aVal > bVal) return 1 * direction;
+      if (aVal < bVal) return -1 * direction;
+      return 0;
+    });
+
+    return data;
+  }, [safeFiles, sortState]);
+
+  const fileStats = useMemo(() => {
+    const totalSize = safeFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+    return {
+      count: safeFiles.length,
+      totalSize,
+    };
+  }, [safeFiles]);
+
   const handleCreateRootFolder = useCallback(async () => {
     if (!customerId) return;
     setIsCreatingFolder(true);
@@ -469,56 +519,6 @@ export default function FileExplorer({ customerId, customerName }) {
 
     return crumbs;
   }, [currentPath, rootPath]);
-
-  const safeFiles = useMemo(() => {
-    if (!Array.isArray(files)) {
-      // eslint-disable-next-line no-console
-      console.assert(Array.isArray(files), "Documents must be an array. Received:", files);
-      return [];
-    }
-    return files;
-  }, [files]);
-
-  const sortedFiles = useMemo(() => {
-    const data = [...safeFiles];
-    const direction = sortState.direction === "asc" ? 1 : -1;
-    const getComparable = (file) => {
-      switch (sortState.key) {
-        case "size":
-          return file.size || 0;
-        case "modified": {
-          const value = Date.parse(file.client_modified || file.server_modified || 0);
-          return Number.isNaN(value) ? 0 : value;
-        }
-        case "name":
-        default:
-          return (file.name || "").toLowerCase();
-      }
-    };
-
-    data.sort((a, b) => {
-      if (a.is_folder && !b.is_folder) return -1;
-      if (!a.is_folder && b.is_folder) return 1;
-      const aVal = getComparable(a);
-      const bVal = getComparable(b);
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        return aVal.localeCompare(bVal) * direction;
-      }
-      if (aVal > bVal) return 1 * direction;
-      if (aVal < bVal) return -1 * direction;
-      return 0;
-    });
-
-    return data;
-  }, [safeFiles, sortState]);
-
-  const fileStats = useMemo(() => {
-    const totalSize = safeFiles.reduce((sum, file) => sum + (file.size || 0), 0);
-    return {
-      count: safeFiles.length,
-      totalSize,
-    };
-  }, [safeFiles]);
 
   const uploadSummary = useMemo(() => {
     if (!uploads.length) {
