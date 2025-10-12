@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   FiArrowDown,
   FiArrowUp,
@@ -30,10 +29,12 @@ import {
   getDropboxDownloadLink,
   getDropboxPreviewLink,
 } from "../services/documents";
+import { useFramerMotion } from "../hooks/useFramerMotion";
 
 const INITIAL_UPLOAD_STATE = [];
 
 export default function FileExplorer({ customerId, customerName }) {
+  const { AnimatePresence, motion } = useFramerMotion();
   const [files, setFiles] = useState([]);
   const [folderExists, setFolderExists] = useState(false);
   const [rootPath, setRootPath] = useState(null);

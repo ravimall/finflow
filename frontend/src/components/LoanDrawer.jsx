@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { FiX } from "react-icons/fi";
 import { api } from "../lib/api.js";
+import { useFramerMotion } from "../hooks/useFramerMotion";
 
 const INITIAL_FORM = {
   status: "",
@@ -22,6 +22,7 @@ function parseNumeric(value) {
 }
 
 export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
+  const { AnimatePresence, motion } = useFramerMotion();
   const [form, setForm] = useState(INITIAL_FORM);
   const [loan, setLoan] = useState(null);
   const [statuses, setStatuses] = useState([]);
