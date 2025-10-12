@@ -1,6 +1,6 @@
 
 import { useEffect, useState, useContext } from "react";
-import axios from "axios";
+import { api, authHeaders } from "../lib/api.js";
 import { AuthContext } from "../context/AuthContext";
 
 export default function AuditLogs() {
@@ -8,8 +8,7 @@ export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
 
   useEffect(() => {
-    const headers = { Authorization: `Bearer ${token}` };
-    axios.get("https://shubhadevelopers.com/api/reports/audit-logs", { headers })
+    api.get("/api/reports/audit-logs", { headers: authHeaders(token) })
       .then(res => setLogs(res.data))
       .catch(err => console.error(err));
   }, [token]);
@@ -40,3 +39,4 @@ export default function AuditLogs() {
     </div>
   );
 }
+
