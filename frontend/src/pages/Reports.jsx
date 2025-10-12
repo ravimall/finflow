@@ -1,6 +1,6 @@
 
 import { useEffect, useState, useContext } from "react";
-import axios from "axios";
+import { api, authHeaders } from "../lib/api.js";
 // import { Bar } from "react-chartjs-2";
 import { AuthContext } from "../context/AuthContext";
 
@@ -11,16 +11,16 @@ export default function Reports() {
   const [agents, setAgents] = useState([]);
 
   useEffect(() => {
-    const headers = { Authorization: `Bearer ${token}` };
-    axios.get("https://shubhadevelopers.com/api/reports/customers-by-status", { headers })
+    const headers = authHeaders(token);
+    api.get("/api/reports/customers-by-status", { headers })
       .then(res => setCustomerStats(res.data))
       .catch(err => console.error(err));
 
-    axios.get("https://shubhadevelopers.com/api/reports/loans-by-status", { headers })
+    api.get("/api/reports/loans-by-status", { headers })
       .then(res => setLoanStats(res.data))
       .catch(err => console.error(err));
 
-    axios.get("https://shubhadevelopers.com/api/reports/agent-performance", { headers })
+    api.get("/api/reports/agent-performance", { headers })
       .then(res => setAgents(res.data))
       .catch(err => console.error(err));
   }, [token]);

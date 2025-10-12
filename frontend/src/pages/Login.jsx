@@ -1,8 +1,21 @@
 // import axios from "axios";
+import { useContext, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config";
+import { AuthContext } from "../context/AuthContext";
 
 export default function Login() {
+  const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [user, navigate]);
+
   const googleLogin = () => {
-    window.location.href = "https://shubhadevelopers.com/api/users/google";
+    window.location.href = `${API_BASE_URL}/api/users/google`;
   };
 
   return (
@@ -17,3 +30,4 @@ export default function Login() {
     </div>
   );
 }
+
