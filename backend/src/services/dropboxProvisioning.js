@@ -125,8 +125,6 @@ async function provisionDropboxForCustomer(customerId, options = {}) {
     baseUpdates = {
       dropboxFolderId: folderDetails.folderId || plainCustomer.dropboxFolderId || null,
       dropboxFolderPath: folderDetails.pathDisplay || plainCustomer.dropboxFolderPath || null,
-      dropboxSharedFolderId:
-        folderDetails.sharedFolderId || plainCustomer.dropboxSharedFolderId || null,
     };
 
     if (!baseUpdates.dropboxFolderPath && baseUpdates.dropboxFolderId) {
@@ -137,23 +135,22 @@ async function provisionDropboxForCustomer(customerId, options = {}) {
       await Customer.update(baseUpdates, { where: { id: customer.id } });
     }
 
-    const membershipResult = await ensureMembers(
-      baseUpdates.dropboxFolderId,
-      baseUpdates.dropboxSharedFolderId,
-      desiredMembers
-    );
-
-    if (
-      membershipResult.sharedFolderId &&
-      membershipResult.sharedFolderId !== baseUpdates.dropboxSharedFolderId
-    ) {
-      baseUpdates.dropboxSharedFolderId = membershipResult.sharedFolderId;
+    let membershipWarning = null;
+    if (baseUpdates.dropboxFolderId) {
+      try {
+        await ensureMembers(baseUpdates.dropboxFolderId, desiredMembers);
+      } catch (membershipError) {
+        membershipWarning = summarizeError(membershipError);
+        console.warn(
+          `⚠️ Dropbox membership sync warning for customer ${customer.id}: ${membershipWarning}`
+        );
+      }
     }
 
     const updates = {
       ...baseUpdates,
       dropboxProvisioningStatus: "ok",
-      dropboxLastError: null,
+      dropboxLastError: membershipWarning,
     };
 
     await Customer.update(updates, { where: { id: customer.id } });

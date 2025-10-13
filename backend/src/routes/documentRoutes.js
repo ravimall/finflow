@@ -149,9 +149,6 @@ async function ensureCustomerFolderPath(customer, actingUserId, transaction) {
       if (folderDetails.folderId) {
         updates.dropboxFolderId = folderDetails.folderId;
       }
-      if (folderDetails.sharedFolderId) {
-        updates.dropboxSharedFolderId = folderDetails.sharedFolderId;
-      }
       if (folderDetails.pathDisplay) {
         logDropboxPathUpdate(customer.id, folderDetails.pathDisplay);
         updates.dropboxFolderPath = folderDetails.pathDisplay;
@@ -189,7 +186,6 @@ async function ensureCustomerFolderPath(customer, actingUserId, transaction) {
           {
             dropboxFolderPath: refreshed.pathDisplay,
             dropboxFolderId: refreshed.folderId || customer.dropboxFolderId,
-            dropboxSharedFolderId: refreshed.sharedFolderId || customer.dropboxSharedFolderId,
           },
           { transaction }
         );

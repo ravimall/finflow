@@ -36,7 +36,6 @@ async function fetchCustomerAgents(customerId, transaction) {
 
 async function processCustomer(customer, transaction) {
   let folderId = customer.dropboxFolderId;
-  let sharedFolderId = customer.dropboxSharedFolderId;
   let folderPath = customer.dropboxFolderPath;
 
   if (!folderId && folderPath) {
@@ -45,9 +44,6 @@ async function processCustomer(customer, transaction) {
       folderId = metadata?.result?.id || metadata?.id || folderId;
       if (metadata?.result?.path_display) {
         folderPath = metadata.result.path_display;
-      }
-      if (metadata?.result?.sharing_info?.shared_folder_id) {
-        sharedFolderId = metadata.result.sharing_info.shared_folder_id;
       }
     } catch (error) {
       const summary = error?.error?.error_summary || error?.message || "unknown";
@@ -59,7 +55,6 @@ async function processCustomer(customer, transaction) {
     const created = await getOrCreateCustomerFolder(customer);
     folderId = created.folderId || folderId;
     folderPath = created.pathDisplay || folderPath;
-    sharedFolderId = created.sharedFolderId || sharedFolderId;
   }
 
   if (folderId) {
@@ -75,9 +70,6 @@ async function processCustomer(customer, transaction) {
   };
   if (folderId && folderId !== customer.dropboxFolderId) {
     updates.dropboxFolderId = folderId;
-  }
-  if (sharedFolderId && sharedFolderId !== customer.dropboxSharedFolderId) {
-    updates.dropboxSharedFolderId = sharedFolderId;
   }
   if (folderPath && folderPath !== customer.dropboxFolderPath) {
     updates.dropboxFolderPath = folderPath;
@@ -98,15 +90,11 @@ async function processCustomer(customer, transaction) {
         accessType: "editor",
       }));
 
-    const membership = await ensureMembers(folderId, sharedFolderId, desiredMembers);
-    if (
-      membership.sharedFolderId &&
-      membership.sharedFolderId !== sharedFolderId
-    ) {
-      await customer.update(
-        { dropboxSharedFolderId: membership.sharedFolderId },
-        { transaction }
-      );
+    try {
+      await ensureMembers(folderId, desiredMembers);
+    } catch (error) {
+      const summary = error?.error?.error_summary || error?.message || "unknown error";
+      console.warn(`⚠️ Failed to update Dropbox members for ${customer.id}: ${summary}`);
     }
   }
 }

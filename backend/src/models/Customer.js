@@ -18,11 +18,6 @@ const Customer = sequelize.define(
       allowNull: true,
       field: "dropbox_folder_id",
     },
-    dropboxSharedFolderId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      field: "dropbox_shared_folder_id",
-    },
     dropboxFolderPath: {
       type: DataTypes.STRING,
       allowNull: true,

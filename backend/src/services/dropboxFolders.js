@@ -176,9 +176,13 @@ function buildMemberAddRequest({ email, accessType }) {
   };
 }
 
-async function ensureMembers(folderId, sharedFolderId, desiredMembers = []) {
+async function ensureMembers(folderId, desiredMembers = [], sharedFolderId = null) {
+  if (!folderId) {
+    return { added: [], removed: [], sharedFolderId: null };
+  }
+
   if (!Array.isArray(desiredMembers) || desiredMembers.length === 0) {
-    return { added: [], removed: [], sharedFolderId: sharedFolderId || null };
+    return { added: [], removed: [], sharedFolderId: null };
   }
 
   const ensured = await shareFolderIfNeeded(folderId, sharedFolderId);

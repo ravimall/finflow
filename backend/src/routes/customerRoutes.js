@@ -592,7 +592,6 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
         "name",
         "customer_id",
         ["dropbox_folder_id", "dropboxFolderId"],
-        ["dropbox_shared_folder_id", "dropboxSharedFolderId"],
         ["dropbox_folder_path", "dropboxFolderPath"],
         ["dropbox_provisioning_status", "dropboxProvisioningStatus"],
         ["dropbox_last_error", "dropboxLastError"],
