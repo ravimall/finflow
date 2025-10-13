@@ -16,10 +16,10 @@ function sanitizeSegment(value, fallback = 'unknown') {
   return collapsed || fallback;
 }
 
-function buildCustomerFolderPath(agentName, customerName) {
-  const safeAgent = sanitizeSegment(agentName, 'admin');
-  const safeCustomer = sanitizeSegment(customerName, 'customer');
-  return `/FinFlow/${safeAgent}/${safeCustomer}`;
+function buildCustomerFolderPath(agentName, customerName, customerCode) {
+  const safeCustomer = sanitizeSegment(customerName, 'customer').toLowerCase();
+  const safeCode = sanitizeSegment(customerCode, 'customer');
+  return `/FinFlow/customers/${safeCode}-${safeCustomer}`;
 }
 
 function isLegacyDropboxPath(path) {

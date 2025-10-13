@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS customers (
     status VARCHAR(50) DEFAULT 'Booking',
     created_by INT REFERENCES users(id) ON DELETE SET NULL,
     primary_agent_id INT REFERENCES users(id) ON DELETE SET NULL,
+    dropbox_folder_id TEXT,
+    dropbox_shared_folder_id TEXT,
     dropbox_folder_path VARCHAR(1024),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

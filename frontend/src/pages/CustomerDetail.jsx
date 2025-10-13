@@ -182,6 +182,7 @@ export default function CustomerDetail() {
   }
 
   const dropboxPath = dropboxLink?.customer?.dropboxFolderPath || customer.dropboxFolderPath;
+  const dropboxUrl = dropboxLink?.dropbox_url || null;
   const agentName = customer.primaryAgent?.name || customer.primaryAgent?.email || "Admin";
 
   return (
@@ -200,6 +201,16 @@ export default function CustomerDetail() {
             >
               📁 View Files
             </button>
+            {dropboxUrl ? (
+              <a
+                href={dropboxUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-600 px-4 text-sm font-semibold text-blue-600 transition hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:w-auto"
+              >
+                🔗 Open Dropbox
+              </a>
+            ) : null}
           </div>
         </header>
 

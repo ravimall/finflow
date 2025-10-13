@@ -15,12 +15,20 @@ const {
 } = require("../models");
 const auth = require("../middleware/auth");
 const {
-  ensureCustomerFolder,
   listFolder,
   combineWithinFolder,
   isLegacyDropboxPath,
   logDropboxAction,
+  ensureFolderHierarchy,
+  sanitizeSegment,
 } = require("../utils/dropbox");
+const {
+  shouldUseFolderId,
+  getOrCreateCustomerFolder,
+  ensureMembers,
+  resolveFolderPath,
+  resolveDropboxWebLink,
+} = require("../services/dropboxFolders");
 const { logAudit } = require("../utils/audit");
 
 function handleDropboxError(res, err, fallbackMessage) {
@@ -158,52 +166,127 @@ async function ensureAgentAssignment(customerId, agentId, transaction) {
 }
 
 async function provisionCustomerFolder(customer, agent, transaction, userId) {
-  const agentLabel = agent?.name || agent?.email || "admin";
-
   if (isLegacyDropboxPath(customer.dropboxFolderPath)) {
     logDropboxPathUpdate(customer.id, null);
-    customer.set("dropboxFolderPath", null);
-    await customer.save({ transaction });
+    await customer.update({ dropboxFolderPath: null }, { transaction });
   }
 
-  const { path, created } = await ensureCustomerFolder(
-    agentLabel,
-    customer.name,
-    customer.customer_id
+  if (!shouldUseFolderId()) {
+    const normalizedPath = `/FinFlow/customers/${sanitizeSegment(
+      customer.customer_id,
+      "customer"
+    )}-${sanitizeSegment(customer.name, "customer").toLowerCase()}`;
+    const outcome = await ensureFolderHierarchy(normalizedPath);
+    const finalPath = outcome?.path || normalizedPath;
+
+    if (
+      finalPath &&
+      finalPath.trim() &&
+      finalPath !== customer.dropboxFolderPath
+    ) {
+      logDropboxPathUpdate(customer.id, finalPath);
+      await customer.update({ dropboxFolderPath: finalPath }, { transaction });
+    }
+
+    if (outcome?.created) {
+      // eslint-disable-next-line no-console
+      console.info(
+        `📁 Created Dropbox folder ${finalPath} for customer ${customer.id}`
+      );
+      await logAudit(
+        userId,
+        customer.id,
+        "dropbox.folder.created",
+        JSON.stringify({ path: finalPath }),
+        transaction
+      );
+    }
+
+    return { path: finalPath, created: Boolean(outcome?.created) };
+  }
+
+  const folderDetails = await getOrCreateCustomerFolder(customer);
+
+  const updatePayload = {};
+  if (folderDetails.folderId && folderDetails.folderId !== customer.dropboxFolderId) {
+    updatePayload.dropboxFolderId = folderDetails.folderId;
+  }
+  if (folderDetails.sharedFolderId && folderDetails.sharedFolderId !== customer.dropboxSharedFolderId) {
+    updatePayload.dropboxSharedFolderId = folderDetails.sharedFolderId;
+  }
+  if (
+    folderDetails.pathDisplay &&
+    folderDetails.pathDisplay.trim() &&
+    folderDetails.pathDisplay !== customer.dropboxFolderPath
+  ) {
+    logDropboxPathUpdate(customer.id, folderDetails.pathDisplay);
+    updatePayload.dropboxFolderPath = folderDetails.pathDisplay;
+  }
+
+  if (Object.keys(updatePayload).length) {
+    await customer.update(updatePayload, { transaction });
+  }
+
+  const desiredMembers = [];
+  const seen = new Set();
+  const registerMember = (email, accessType = "editor") => {
+    const normalized = (email || "").trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    desiredMembers.push({ email: normalized, accessType });
+  };
+
+  if (agent?.email) {
+    registerMember(agent.email, "editor");
+  }
+
+  const admins = await User.findAll({ where: { role: "admin" }, transaction });
+  admins.forEach((admin) => registerMember(admin.email, "editor"));
+
+  const currentSharedId =
+    updatePayload.dropboxSharedFolderId ||
+    customer.dropboxSharedFolderId ||
+    folderDetails.sharedFolderId ||
+    null;
+
+  const membershipResult = await ensureMembers(
+    folderDetails.folderId,
+    currentSharedId,
+    desiredMembers
   );
 
   if (
-    typeof path === "string" &&
-    path.trim() &&
-    (!customer.dropboxFolderPath || customer.dropboxFolderPath !== path)
+    membershipResult.sharedFolderId &&
+    membershipResult.sharedFolderId !== currentSharedId
   ) {
-    logDropboxPathUpdate(customer.id, path);
-    customer.set("dropboxFolderPath", path);
-    await customer.save({ transaction });
+    await customer.update(
+      { dropboxSharedFolderId: membershipResult.sharedFolderId },
+      { transaction }
+    );
   }
 
-  if (created) {
+  if (folderDetails.created) {
     // eslint-disable-next-line no-console
     console.info(
-      `📁 Created Dropbox folder ${path} for customer ${customer.id} (agent ${
-        agent?.id || "admin"
-      })`
+      `📁 Created Dropbox folder ${folderDetails.pathDisplay} for customer ${customer.id}`
     );
     await logAudit(
       userId,
       customer.id,
       "dropbox.folder.created",
-      JSON.stringify({ path }),
+      JSON.stringify({ path: folderDetails.pathDisplay, id: folderDetails.folderId }),
       transaction
     );
   } else {
     // eslint-disable-next-line no-console
     console.info(
-      `📁 Dropbox folder already present for customer ${customer.id} at ${path}`
+      `📁 Dropbox folder already present for customer ${customer.id} at ${folderDetails.pathDisplay}`
     );
   }
 
-  return { path, created };
+  return { path: folderDetails.pathDisplay, created: folderDetails.created };
 }
 
 async function assertCustomerAccess(user, customerId) {
@@ -590,6 +673,8 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
         "id",
         "name",
         "customer_id",
+        ["dropbox_folder_id", "dropboxFolderId"],
+        ["dropbox_shared_folder_id", "dropboxSharedFolderId"],
         ["dropbox_folder_path", "dropboxFolderPath"],
       ],
       include: [
@@ -601,14 +686,31 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
       return res.status(404).json({ error: "Customer not found" });
     }
 
+    let resolvedPath = customer.dropboxFolderPath;
+    let resolvedUrl = null;
+
+    if (shouldUseFolderId() && customer.dropboxFolderId) {
+      const url = await resolveDropboxWebLink(customer.dropboxFolderId);
+      resolvedUrl = url;
+      const latestPath = await resolveFolderPath(customer.dropboxFolderId);
+      if (latestPath && latestPath !== customer.dropboxFolderPath) {
+        resolvedPath = latestPath;
+        await customer.update({ dropboxFolderPath: latestPath });
+      }
+    } else if (customer.dropboxFolderPath) {
+      resolvedUrl = `https://www.dropbox.com/home${encodeURI(customer.dropboxFolderPath)}`;
+    }
+
     res.json({
       customer: {
         id: customer.id,
         name: customer.name,
         customer_id: customer.customer_id,
-        dropboxFolderPath: customer.dropboxFolderPath,
+        dropboxFolderId: customer.dropboxFolderId,
+        dropboxFolderPath: resolvedPath,
         primaryAgent: customer.primaryAgent,
       },
+      dropbox_url: resolvedUrl,
       documents_url: `/documents?customer_id=${customer.id}`,
     });
   } catch (err) {
