@@ -13,10 +13,31 @@ const Customer = sequelize.define(
     status: { type: DataTypes.STRING, defaultValue: "Booking" },
     created_by: { type: DataTypes.INTEGER, allowNull: true },
     primary_agent_id: { type: DataTypes.INTEGER, allowNull: true },
+    dropboxFolderId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: "dropbox_folder_id",
+    },
+    dropboxSharedFolderId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: "dropbox_shared_folder_id",
+    },
     dropboxFolderPath: {
       type: DataTypes.STRING,
       allowNull: true,
       field: "dropbox_folder_path",
+    },
+    dropboxProvisioningStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "pending",
+      field: "dropbox_provisioning_status",
+    },
+    dropboxLastError: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: "dropbox_last_error",
     },
   },
   {
