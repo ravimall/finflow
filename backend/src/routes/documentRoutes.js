@@ -73,6 +73,14 @@ async function userCanAccessCustomer(user, customerId) {
   return false;
 }
 
+function logDropboxPathUpdate(customerId, path) {
+  const serializedPath = typeof path === "string" && path.trim() ? path : null;
+  // eslint-disable-next-line no-console
+  console.info(
+    `[DropboxPathUpdate] id=${customerId} path=${serializedPath ? JSON.stringify(serializedPath) : "null"}`
+  );
+}
+
 async function findCustomerForDropboxPath(user, dropboxPath) {
   if (!dropboxPath) {
     return null;
@@ -98,16 +106,16 @@ async function findCustomerForDropboxPath(user, dropboxPath) {
   }
 
   const customers = await Customer.findAll({
-    where: { dropbox_folder_path: { [Op.ne]: null } },
-    attributes: ["id", "dropbox_folder_path"],
+    where: { dropboxFolderPath: { [Op.ne]: null } },
+    attributes: ["id", ["dropbox_folder_path", "dropboxFolderPath"]],
   });
 
   for (const customer of customers) {
-    if (!customer.dropbox_folder_path) {
+    if (!customer.dropboxFolderPath) {
       continue;
     }
 
-    if (normalized.startsWith(customer.dropbox_folder_path.toLowerCase())) {
+    if (normalized.startsWith(customer.dropboxFolderPath.toLowerCase())) {
       const allowed = await userCanAccessCustomer(user, customer.id);
       if (allowed) {
         return customer;
@@ -149,13 +157,14 @@ async function resolveFolderAgent(customer, transaction) {
 }
 
 async function ensureCustomerFolderPath(customer, actingUserId, transaction) {
-  if (customer.dropbox_folder_path && !isLegacyDropboxPath(customer.dropbox_folder_path)) {
-    return { path: customer.dropbox_folder_path, created: false };
+  if (customer.dropboxFolderPath && !isLegacyDropboxPath(customer.dropboxFolderPath)) {
+    return { path: customer.dropboxFolderPath, created: false };
   }
 
-  if (customer.dropbox_folder_path && isLegacyDropboxPath(customer.dropbox_folder_path)) {
-    customer.set("dropbox_folder_path", null);
-    await customer.save({ transaction, fields: ["dropbox_folder_path"] });
+  if (customer.dropboxFolderPath && isLegacyDropboxPath(customer.dropboxFolderPath)) {
+    logDropboxPathUpdate(customer.id, null);
+    customer.set("dropboxFolderPath", null);
+    await customer.save({ transaction });
   }
 
   const agent = await resolveFolderAgent(customer, transaction);
@@ -167,9 +176,14 @@ async function ensureCustomerFolderPath(customer, actingUserId, transaction) {
     customer.customer_id
   );
 
-  if (!customer.dropbox_folder_path || customer.dropbox_folder_path !== outcome.path) {
-    customer.set("dropbox_folder_path", outcome.path);
-    await customer.save({ transaction, fields: ["dropbox_folder_path"] });
+  if (
+    typeof outcome.path === "string" &&
+    outcome.path.trim() &&
+    (!customer.dropboxFolderPath || customer.dropboxFolderPath !== outcome.path)
+  ) {
+    logDropboxPathUpdate(customer.id, outcome.path);
+    customer.set("dropboxFolderPath", outcome.path);
+    await customer.save({ transaction });
   }
 
   if (outcome.created) {
@@ -399,11 +413,12 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    if (customer.dropbox_folder_path && isLegacyDropboxPath(customer.dropbox_folder_path)) {
-      await customer.update({ dropbox_folder_path: null });
+    if (customer.dropboxFolderPath && isLegacyDropboxPath(customer.dropboxFolderPath)) {
+      logDropboxPathUpdate(customer.id, null);
+      await customer.update({ dropboxFolderPath: null });
     }
 
-    if (!customer.dropbox_folder_path) {
+    if (!customer.dropboxFolderPath) {
       // eslint-disable-next-line no-console
       console.warn(
         `ℹ️ Dropbox folder missing for customer ${customer.id} when listing files`
@@ -412,7 +427,7 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
     }
 
     const targetPath = combineWithinFolder(
-      customer.dropbox_folder_path,
+      customer.dropboxFolderPath,
       req.query.path
     );
 

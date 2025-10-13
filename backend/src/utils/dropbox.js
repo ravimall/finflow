@@ -1,4 +1,10 @@
 const dbx = require("../config/dropbox");
+const {
+  LEGACY_PATH_PREFIXES,
+  sanitizeSegment,
+  buildCustomerFolderPath,
+  isLegacyDropboxPath,
+} = require("./dropboxPath");
 
 function logDropboxAction(action, path, userId) {
   const normalizedAction = action || "unknown";
@@ -52,35 +58,6 @@ async function ensureSharedLink(path) {
     console.error(`❌ Dropbox shared link creation failed for ${path}: ${message}`);
     return null;
   }
-}
-
-const LEGACY_PATH_PREFIXES = ["/Apps/FinFlow/finflow/", "/finflow/"];
-
-function sanitizeSegment(value, fallback = "unknown") {
-  const normalized = (value || fallback)
-    .toString()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, "")
-    .trim();
-
-  const collapsed = normalized.replace(/\s+/g, "_");
-  return collapsed || fallback;
-}
-
-function buildCustomerFolderPath(agentName, customerName) {
-  const safeAgent = sanitizeSegment(agentName, "admin");
-  const safeCustomer = sanitizeSegment(customerName, "customer");
-  return `/FinFlow/${safeAgent}/${safeCustomer}`;
-}
-
-function isLegacyDropboxPath(path) {
-  if (!path) {
-    return false;
-  }
-
-  const lower = path.toLowerCase();
-  return LEGACY_PATH_PREFIXES.some((prefix) => lower.startsWith(prefix.toLowerCase()));
 }
 
 async function ensureFolderHierarchy(path) {

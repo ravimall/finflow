@@ -50,10 +50,10 @@ function handleDropboxError(res, err, fallbackMessage) {
 async function cleanupLegacyDropboxReferences() {
   try {
     const [updated] = await Customer.update(
-      { dropbox_folder_path: null },
+      { dropboxFolderPath: null },
       {
         where: {
-          dropbox_folder_path: {
+          dropboxFolderPath: {
             [Op.or]: [
               { [Op.like]: "/Apps/FinFlow/finflow/%" },
               { [Op.like]: "/finflow/%" },
@@ -74,6 +74,14 @@ async function cleanupLegacyDropboxReferences() {
 }
 
 cleanupLegacyDropboxReferences();
+
+function logDropboxPathUpdate(customerId, path) {
+  const serializedPath = typeof path === "string" ? path : null;
+  // eslint-disable-next-line no-console
+  console.info(
+    `[DropboxPathUpdate] id=${customerId} path=${serializedPath ? JSON.stringify(serializedPath) : "null"}`
+  );
+}
 
 async function generateCustomerCode(transaction) {
   const lastSequence = await sequelize.query(
@@ -152,9 +160,10 @@ async function ensureAgentAssignment(customerId, agentId, transaction) {
 async function provisionCustomerFolder(customer, agent, transaction, userId) {
   const agentLabel = agent?.name || agent?.email || "admin";
 
-  if (isLegacyDropboxPath(customer.dropbox_folder_path)) {
-    customer.set("dropbox_folder_path", null);
-    await customer.save({ transaction, fields: ["dropbox_folder_path"] });
+  if (isLegacyDropboxPath(customer.dropboxFolderPath)) {
+    logDropboxPathUpdate(customer.id, null);
+    customer.set("dropboxFolderPath", null);
+    await customer.save({ transaction });
   }
 
   const { path, created } = await ensureCustomerFolder(
@@ -163,9 +172,14 @@ async function provisionCustomerFolder(customer, agent, transaction, userId) {
     customer.customer_id
   );
 
-  if (!customer.dropbox_folder_path || customer.dropbox_folder_path !== path) {
-    customer.set("dropbox_folder_path", path);
-    await customer.save({ transaction, fields: ["dropbox_folder_path"] });
+  if (
+    typeof path === "string" &&
+    path.trim() &&
+    (!customer.dropboxFolderPath || customer.dropboxFolderPath !== path)
+  ) {
+    logDropboxPathUpdate(customer.id, path);
+    customer.set("dropboxFolderPath", path);
+    await customer.save({ transaction });
   }
 
   if (created) {
@@ -334,7 +348,36 @@ router.put("/:id", auth(), async (req, res) => {
       }
     }
 
-    await customer.update(req.body);
+    const updatePayload = { ...req.body };
+    delete updatePayload.dropboxFolderPath;
+    delete updatePayload.dropbox_folder_path;
+    delete updatePayload.folderPath;
+
+    if (
+      Object.prototype.hasOwnProperty.call(req.body || {}, "dropboxFolderPath") ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, "dropbox_folder_path") ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, "folderPath")
+    ) {
+      const rawPath =
+        req.body?.dropboxFolderPath ??
+        req.body?.dropbox_folder_path ??
+        req.body?.folderPath ??
+        "";
+
+      const normalizedPath =
+        typeof rawPath === "string" ? rawPath.trim() : String(rawPath || "").trim();
+
+      if (!normalizedPath) {
+        return res
+          .status(400)
+          .json({ error: "dropboxFolderPath is required and cannot be empty" });
+      }
+
+      logDropboxPathUpdate(customer.id, normalizedPath);
+      updatePayload.dropboxFolderPath = normalizedPath;
+    }
+
+    await customer.update(updatePayload);
     res.json({ message: "Customer updated successfully", customer });
   } catch (err) {
     const statusCode = err.statusCode || 400;
@@ -543,7 +586,12 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
   try {
     await assertCustomerAccess(req.user, req.params.id);
     const customer = await Customer.findByPk(req.params.id, {
-      attributes: ["id", "name", "customer_id", "dropbox_folder_path"],
+      attributes: [
+        "id",
+        "name",
+        "customer_id",
+        ["dropbox_folder_path", "dropboxFolderPath"],
+      ],
       include: [
         { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
       ],
@@ -558,7 +606,7 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
         id: customer.id,
         name: customer.name,
         customer_id: customer.customer_id,
-        dropbox_folder_path: customer.dropbox_folder_path,
+        dropboxFolderPath: customer.dropboxFolderPath,
         primaryAgent: customer.primaryAgent,
       },
       documents_url: `/documents?customer_id=${customer.id}`,
@@ -641,12 +689,12 @@ router.get("/:id/dropbox-list", auth(), async (req, res) => {
       return res.status(404).json({ error: "Customer not found" });
     }
 
-    if (!customer.dropbox_folder_path) {
+    if (!customer.dropboxFolderPath) {
       return res.json({ path: null, entries: [] });
     }
 
     const targetPath = combineWithinFolder(
-      customer.dropbox_folder_path,
+      customer.dropboxFolderPath,
       req.query.path
     );
 

@@ -181,7 +181,7 @@ export default function CustomerDetail() {
     return <p className="text-sm text-gray-600">Customer not found.</p>;
   }
 
-  const dropboxPath = dropboxLink?.customer?.dropbox_folder_path || customer.dropbox_folder_path;
+  const dropboxPath = dropboxLink?.customer?.dropboxFolderPath || customer.dropboxFolderPath;
   const agentName = customer.primaryAgent?.name || customer.primaryAgent?.email || "Admin";
 
   return (

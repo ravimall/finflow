@@ -13,7 +13,11 @@ const Customer = sequelize.define(
     status: { type: DataTypes.STRING, defaultValue: "Booking" },
     created_by: { type: DataTypes.INTEGER, allowNull: true },
     primary_agent_id: { type: DataTypes.INTEGER, allowNull: true },
-    dropbox_folder_path: { type: DataTypes.STRING },
+    dropboxFolderPath: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      field: "dropbox_folder_path",
+    },
   },
   {
     timestamps: true,
