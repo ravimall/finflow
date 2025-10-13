@@ -14,13 +14,16 @@ const {
   ConfigBank,
 } = require("../models");
 const auth = require("../middleware/auth");
+const { listFolder, combineWithinFolder, logDropboxAction } = require("../utils/dropbox");
 const {
-  ensureCustomerFolder,
-  listFolder,
-  combineWithinFolder,
-  isLegacyDropboxPath,
-  logDropboxAction,
-} = require("../utils/dropbox");
+  shouldUseFolderId,
+  resolveFolderPath,
+  resolveDropboxWebLink,
+} = require("../services/dropboxFolders");
+const {
+  queueDropboxProvisioning,
+  provisionDropboxForCustomer,
+} = require("../services/dropboxProvisioning");
 const { logAudit } = require("../utils/audit");
 
 function handleDropboxError(res, err, fallbackMessage) {
@@ -44,7 +47,8 @@ function handleDropboxError(res, err, fallbackMessage) {
   }
 
   const statusCode = err?.statusCode || err?.status || 500;
-  return res.status(statusCode).json({ error: normalizedMessage });
+  const effectiveStatus = statusCode >= 400 && statusCode < 500 ? 502 : statusCode;
+  return res.status(effectiveStatus).json({ error: normalizedMessage });
 }
 
 async function cleanupLegacyDropboxReferences() {
@@ -81,6 +85,17 @@ function logDropboxPathUpdate(customerId, path) {
   console.info(
     `[DropboxPathUpdate] id=${customerId} path=${serializedPath ? JSON.stringify(serializedPath) : "null"}`
   );
+}
+
+function resolveErrorStatus(err, defaultStatus = 500) {
+  if (!err) {
+    return defaultStatus;
+  }
+  const statusCode = err.statusCode || err.status;
+  if (statusCode && statusCode >= 400 && statusCode < 500) {
+    return statusCode;
+  }
+  return defaultStatus;
 }
 
 async function generateCustomerCode(transaction) {
@@ -157,55 +172,6 @@ async function ensureAgentAssignment(customerId, agentId, transaction) {
   });
 }
 
-async function provisionCustomerFolder(customer, agent, transaction, userId) {
-  const agentLabel = agent?.name || agent?.email || "admin";
-
-  if (isLegacyDropboxPath(customer.dropboxFolderPath)) {
-    logDropboxPathUpdate(customer.id, null);
-    customer.set("dropboxFolderPath", null);
-    await customer.save({ transaction });
-  }
-
-  const { path, created } = await ensureCustomerFolder(
-    agentLabel,
-    customer.name,
-    customer.customer_id
-  );
-
-  if (
-    typeof path === "string" &&
-    path.trim() &&
-    (!customer.dropboxFolderPath || customer.dropboxFolderPath !== path)
-  ) {
-    logDropboxPathUpdate(customer.id, path);
-    customer.set("dropboxFolderPath", path);
-    await customer.save({ transaction });
-  }
-
-  if (created) {
-    // eslint-disable-next-line no-console
-    console.info(
-      `📁 Created Dropbox folder ${path} for customer ${customer.id} (agent ${
-        agent?.id || "admin"
-      })`
-    );
-    await logAudit(
-      userId,
-      customer.id,
-      "dropbox.folder.created",
-      JSON.stringify({ path }),
-      transaction
-    );
-  } else {
-    // eslint-disable-next-line no-console
-    console.info(
-      `📁 Dropbox folder already present for customer ${customer.id} at ${path}`
-    );
-  }
-
-  return { path, created };
-}
-
 async function assertCustomerAccess(user, customerId) {
   if (user.role === "admin") {
     return;
@@ -240,7 +206,9 @@ router.post(
     const { name, phone, email, address, agent_id, status } = req.body;
 
     try {
-      const customer = await sequelize.transaction(async (transaction) => {
+      let createdCustomerId = null;
+
+      await sequelize.transaction(async (transaction) => {
         const assignedAgent = await resolveAssignedAgent(
           agent_id,
           req.user.id,
@@ -264,26 +232,31 @@ router.post(
         );
 
         await ensureAgentAssignment(createdCustomer.id, assignedAgent.id, transaction);
-
-        await provisionCustomerFolder(
-          createdCustomer,
-          assignedAgent,
-          transaction,
-          req.user.id
-        );
-
-        return createdCustomer;
+        createdCustomerId = createdCustomer.id;
       });
 
-      const created = await Customer.findByPk(customer.id, {
+      if (createdCustomerId) {
+        await queueDropboxProvisioning(createdCustomerId, {
+          trigger: "customer-create",
+        });
+      }
+
+      if (!createdCustomerId) {
+        throw new Error("Customer creation failed before provisioning");
+      }
+
+      const created = await Customer.findByPk(createdCustomerId, {
         include: [
           { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
         ],
       });
 
-      res.json({ message: "Customer created successfully", customer: created });
+      res.status(201).json({
+        message: "Customer created successfully",
+        customer: created,
+      });
     } catch (err) {
-      const statusCode = err.statusCode || 400;
+      const statusCode = resolveErrorStatus(err);
       res.status(statusCode).json({ error: err.message });
     }
   }
@@ -328,7 +301,7 @@ router.get("/:id", auth(), async (req, res) => {
     if (!customer) return res.status(404).json({ error: "Customer not found" });
     res.json(customer);
   } catch (err) {
-    const statusCode = err.statusCode || 500;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 });
@@ -380,7 +353,7 @@ router.put("/:id", auth(), async (req, res) => {
     await customer.update(updatePayload);
     res.json({ message: "Customer updated successfully", customer });
   } catch (err) {
-    const statusCode = err.statusCode || 400;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 });
@@ -413,7 +386,7 @@ router.put("/:id/status", auth(), async (req, res) => {
     await customer.update({ status: statusRecord.name });
     res.json({ message: "Customer status updated", customer });
   } catch (err) {
-    const statusCode = err.statusCode || 400;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 });
@@ -468,13 +441,6 @@ async function handleAgentAssignment(req, res) {
 
       await customerForUpdate.update(updatePayload, { transaction });
 
-      await provisionCustomerFolder(
-        customerForUpdate,
-        assignedAgent,
-        transaction,
-        req.user.id
-      );
-
       await logAudit(
         req.user.id,
         customer.id,
@@ -484,6 +450,10 @@ async function handleAgentAssignment(req, res) {
       );
 
       return assignedAgent;
+    });
+
+    await queueDropboxProvisioning(customer.id, {
+      trigger: "agent-assignment",
     });
 
     const refreshed = await Customer.findByPk(customer.id, {
@@ -503,7 +473,7 @@ async function handleAgentAssignment(req, res) {
       customer: refreshed,
     });
   } catch (err) {
-    const statusCode = err.statusCode || 400;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 }
@@ -520,7 +490,7 @@ router.get("/:id/notes", auth(), async (req, res) => {
     });
     res.json(notes);
   } catch (err) {
-    const statusCode = err.statusCode || 500;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 });
@@ -556,7 +526,7 @@ router.post(
 
       res.status(201).json(withAuthor);
     } catch (err) {
-      const statusCode = err.statusCode || 500;
+      const statusCode = resolveErrorStatus(err);
       res.status(statusCode).json({ error: err.message });
     }
   }
@@ -574,13 +544,44 @@ router.get("/:id/loans", auth(), async (req, res) => {
     });
     res.json(loans);
   } catch (err) {
-    const statusCode = err.statusCode || 500;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 });
 
 router.post("/:id/assign-agent", auth("admin"), handleAgentAssignment);
 router.put("/:id/assign-agent", auth("admin"), handleAgentAssignment);
+
+router.post("/:id/provision-dropbox", auth(), async (req, res) => {
+  try {
+    await assertCustomerAccess(req.user, req.params.id);
+    const customer = await Customer.findByPk(req.params.id, {
+      include: [
+        { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
+      ],
+    });
+
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    await queueDropboxProvisioning(customer.id, { trigger: "manual-retry" });
+
+    const refreshed = await Customer.findByPk(customer.id, {
+      include: [
+        { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
+      ],
+    });
+
+    return res.status(202).json({
+      message: "Dropbox provisioning enqueued",
+      customer: refreshed,
+    });
+  } catch (err) {
+    const statusCode = resolveErrorStatus(err);
+    return res.status(statusCode).json({ error: err.message });
+  }
+});
 
 router.get("/:id/dropbox-link", auth(), async (req, res) => {
   try {
@@ -590,7 +591,11 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
         "id",
         "name",
         "customer_id",
+        ["dropbox_folder_id", "dropboxFolderId"],
+        ["dropbox_shared_folder_id", "dropboxSharedFolderId"],
         ["dropbox_folder_path", "dropboxFolderPath"],
+        ["dropbox_provisioning_status", "dropboxProvisioningStatus"],
+        ["dropbox_last_error", "dropboxLastError"],
       ],
       include: [
         { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
@@ -601,18 +606,37 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
       return res.status(404).json({ error: "Customer not found" });
     }
 
+    let resolvedPath = customer.dropboxFolderPath;
+    let resolvedUrl = null;
+
+    if (shouldUseFolderId() && customer.dropboxFolderId) {
+      const url = await resolveDropboxWebLink(customer.dropboxFolderId);
+      resolvedUrl = url;
+      const latestPath = await resolveFolderPath(customer.dropboxFolderId);
+      if (latestPath && latestPath !== customer.dropboxFolderPath) {
+        resolvedPath = latestPath;
+        await customer.update({ dropboxFolderPath: latestPath });
+      }
+    } else if (customer.dropboxFolderPath) {
+      resolvedUrl = `https://www.dropbox.com/home${encodeURI(customer.dropboxFolderPath)}`;
+    }
+
     res.json({
       customer: {
         id: customer.id,
         name: customer.name,
         customer_id: customer.customer_id,
-        dropboxFolderPath: customer.dropboxFolderPath,
+        dropboxFolderId: customer.dropboxFolderId,
+        dropboxFolderPath: resolvedPath,
+        dropboxProvisioningStatus: customer.dropboxProvisioningStatus,
+        dropboxLastError: customer.dropboxLastError,
         primaryAgent: customer.primaryAgent,
       },
+      dropbox_url: resolvedUrl,
       documents_url: `/documents?customer_id=${customer.id}`,
     });
   } catch (err) {
-    const statusCode = err.statusCode || 500;
+    const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
 });
@@ -625,55 +649,20 @@ router.post("/:id/create-folder", auth(), async (req, res) => {
       return res.status(404).json({ error: "Customer not found" });
     }
 
-    const { path, created } = await sequelize.transaction(async (transaction) => {
-      const customerForUpdate = await Customer.findByPk(customer.id, {
-        transaction,
-        lock: transaction.LOCK.UPDATE,
-      });
-
-      const agent = customerForUpdate.primary_agent_id
-        ? await User.findByPk(customerForUpdate.primary_agent_id, { transaction })
-        : await resolveAssignedAgent(null, req.user.id, transaction);
-
-      const outcome = await provisionCustomerFolder(
-        customerForUpdate,
-        agent,
-        transaction,
-        req.user.id
-      );
-
-      if (outcome.created) {
-        await logAudit(
-          req.user.id,
-          customer.id,
-          "dropbox.folder.created.manual",
-          JSON.stringify({ path: outcome.path }),
-          transaction
-        );
-      }
-
-      return outcome;
+    const result = await provisionDropboxForCustomer(customer.id, {
+      markPending: true,
+      trigger: "manual-create",
     });
 
-    logDropboxAction("create-folder", path, req.user?.id);
+    const refreshed = await Customer.findByPk(customer.id);
+    const path = result?.dropboxFolderPath || refreshed?.dropboxFolderPath || null;
 
-    if (created) {
-      // eslint-disable-next-line no-console
-      console.info(
-        `📁 Manual Dropbox folder creation succeeded for customer ${customer.id} (agent ${
-          customer.primary_agent_id || "admin"
-        }) at ${path}`
-      );
-    } else {
-      // eslint-disable-next-line no-console
-      console.info(
-        `ℹ️ Dropbox folder already exists for customer ${customer.id} at ${path}`
-      );
-    }
+    logDropboxAction("create-folder", path || "N/A", req.user?.id);
 
     res.json({
-      message: created ? "Dropbox folder created" : "Folder already exists",
+      message: path ? "Dropbox folder provisioned" : "Dropbox provisioning triggered",
       path,
+      customer: refreshed,
     });
   } catch (err) {
     logDropboxAction("create-folder", req.params?.id || "N/A", req.user?.id);

@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS customers (
     status VARCHAR(50) DEFAULT 'Booking',
     created_by INT REFERENCES users(id) ON DELETE SET NULL,
     primary_agent_id INT REFERENCES users(id) ON DELETE SET NULL,
+    dropbox_folder_id TEXT,
+    dropbox_shared_folder_id TEXT,
     dropbox_folder_path VARCHAR(1024),
+    dropbox_provisioning_status TEXT DEFAULT 'pending',
+    dropbox_last_error TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -96,6 +100,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_customers_customer_id ON customers(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_customer_agents_customer_agent ON customer_agents(customer_id, agent_id);
 CREATE INDEX IF NOT EXISTS idx_loans_customer_id ON loans(customer_id);
 CREATE INDEX IF NOT EXISTS idx_documents_customer_id ON documents(customer_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
