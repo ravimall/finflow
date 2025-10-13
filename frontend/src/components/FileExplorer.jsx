@@ -4,7 +4,9 @@ import {
   FiArrowUp,
   FiArchive,
   FiCheckSquare,
+  FiChevronDown,
   FiChevronLeft,
+  FiChevronRight,
   FiDownload,
   FiEdit2,
   FiEye,
@@ -12,7 +14,9 @@ import {
   FiFileText,
   FiFolder,
   FiImage,
+  FiLink,
   FiList,
+  FiMoreVertical,
   FiPlusCircle,
   FiRefreshCw,
   FiTrash2,
@@ -50,6 +54,8 @@ export default function FileExplorer({ customerId, customerName }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [sortState, setSortState] = useState({ key: "name", direction: "asc" });
+  const [expandedMobileDetails, setExpandedMobileDetails] = useState(() => new Set());
+  const [expandedMobileActions, setExpandedMobileActions] = useState(() => new Set());
 
   const fileInputRef = useRef(null);
   const rootPathRef = useRef(null);
@@ -178,6 +184,11 @@ export default function FileExplorer({ customerId, customerName }) {
 
     return data;
   }, [safeFiles, sortState]);
+
+  useEffect(() => {
+    setExpandedMobileDetails(new Set());
+    setExpandedMobileActions(new Set());
+  }, [currentPath]);
 
   const fileStats = useMemo(() => {
     const totalSize = safeFiles.reduce((sum, file) => sum + (file.size || 0), 0);
@@ -417,6 +428,57 @@ export default function FileExplorer({ customerId, customerName }) {
     }
   }, [showToast]);
 
+  const handleCopyLink = useCallback(
+    async (path) => {
+      if (!path) return;
+      let shareUrl = null;
+      let lastError = null;
+
+      try {
+        const { preview_url: previewUrl } = await getDropboxPreviewLink(path);
+        if (previewUrl) {
+          shareUrl = previewUrl;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+
+      if (!shareUrl) {
+        try {
+          const { url } = await getDropboxDownloadLink(path);
+          if (url) {
+            shareUrl = url;
+          }
+        } catch (err) {
+          lastError = err;
+        }
+      }
+
+      if (!shareUrl) {
+        const message =
+          lastError?.response?.data?.error || lastError?.message || "Unable to copy link";
+        showToast("error", message);
+        return;
+      }
+
+      try {
+        if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+          showToast("success", "Link copied to clipboard");
+        } else {
+          if (typeof window !== "undefined" && window?.prompt) {
+            window.prompt("Copy link", shareUrl);
+          }
+          showToast("success", "Link ready to copy");
+        }
+      } catch (err) {
+        const message = err?.message || "Unable to copy link";
+        showToast("error", message);
+      }
+    },
+    [showToast]
+  );
+
   const fetchPreviewLinkForPath = useCallback(
     async (path, { showError = true } = {}) => {
       if (!path) return;
@@ -472,6 +534,32 @@ export default function FileExplorer({ customerId, customerName }) {
         setPreviewLink(null);
         setPreviewLoading(false);
         previewPathRef.current = null;
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleMobileDetails = useCallback((path) => {
+    if (!path) return;
+    setExpandedMobileDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleMobileActions = useCallback((path) => {
+    if (!path) return;
+    setExpandedMobileActions((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
       }
       return next;
     });
@@ -938,163 +1026,339 @@ export default function FileExplorer({ customerId, customerName }) {
             }`}
           >
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="w-10 px-3 py-3">
-                        <input type="checkbox" checked={isAllSelected} onChange={selectAll} title="Select all" />
-                      </th>
-                      <th className="w-12 px-3 py-3 text-left">Type</th>
-                      <th className="px-3 py-3 text-left">
-                        <button
-                          type="button"
-                          onClick={() => handleSort("name")}
-                          title="Sort by name"
-                          className="flex items-center gap-1 text-gray-600 transition hover:text-gray-900"
-                        >
-                          Name
-                          {renderSortIcon("name")}
-                        </button>
-                      </th>
-                      <th className="px-3 py-3 text-left">
-                        <button
-                          type="button"
-                          onClick={() => handleSort("size")}
-                          title="Sort by size"
-                          className="flex items-center gap-1 text-gray-600 transition hover:text-gray-900"
-                        >
-                          Size
-                          {renderSortIcon("size")}
-                        </button>
-                      </th>
-                      <th className="px-3 py-3 text-left">
-                        <button
-                          type="button"
-                          onClick={() => handleSort("modified")}
-                          title="Sort by modified date"
-                          className="flex items-center gap-1 text-gray-600 transition hover:text-gray-900"
-                        >
-                          Modified
-                          {renderSortIcon("modified")}
-                        </button>
-                      </th>
-                      <th className="px-3 py-3 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {sortedFiles.map((file) => {
-                      const isSelected = selectedFiles.includes(file.path);
-                      const rowClasses = isSelected
-                        ? "bg-blue-50"
-                        : "hover:bg-gray-50";
-                      return (
-                        <motion.tr
-                          key={file.id || file.path}
-                          layout
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className={rowClasses}
-                        >
-                          <td className="px-3 py-3 align-middle">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleSelection(file.path)}
-                              title={`Select ${file.name}`}
-                            />
+              <div className="hidden md:block">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      <tr>
+                        <th className="w-10 px-3 py-3">
+                          <input type="checkbox" checked={isAllSelected} onChange={selectAll} title="Select all" />
+                        </th>
+                        <th className="w-12 px-3 py-3 text-left">Type</th>
+                        <th className="px-3 py-3 text-left">
+                          <button
+                            type="button"
+                            onClick={() => handleSort("name")}
+                            title="Sort by name"
+                            className="flex items-center gap-1 text-gray-600 transition hover:text-gray-900"
+                          >
+                            Name
+                            {renderSortIcon("name")}
+                          </button>
+                        </th>
+                        <th className="px-3 py-3 text-left">
+                          <button
+                            type="button"
+                            onClick={() => handleSort("size")}
+                            title="Sort by size"
+                            className="flex items-center gap-1 text-gray-600 transition hover:text-gray-900"
+                          >
+                            Size
+                            {renderSortIcon("size")}
+                          </button>
+                        </th>
+                        <th className="px-3 py-3 text-left">
+                          <button
+                            type="button"
+                            onClick={() => handleSort("modified")}
+                            title="Sort by modified date"
+                            className="flex items-center gap-1 text-gray-600 transition hover:text-gray-900"
+                          >
+                            Modified
+                            {renderSortIcon("modified")}
+                          </button>
+                        </th>
+                        <th className="px-3 py-3 text-left">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {sortedFiles.map((file) => {
+                        const isSelected = selectedFiles.includes(file.path);
+                        const rowClasses = isSelected
+                          ? "bg-blue-50"
+                          : "hover:bg-gray-50";
+                        return (
+                          <motion.tr
+                            key={file.id || file.path}
+                            layout
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={rowClasses}
+                          >
+                            <td className="px-3 py-3 align-middle">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleSelection(file.path)}
+                                title={`Select ${file.name}`}
+                              />
+                            </td>
+                            <td className="px-3 py-3 align-middle">
+                              <span className="inline-flex items-center justify-center rounded-full bg-gray-100 p-2">
+                                {getFileIcon(file)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 align-middle">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  file.is_folder ? navigateToFolder(file.path) : toggleSelection(file.path)
+                                }
+                                title={file.is_folder ? "Open folder" : "Select file"}
+                                className={`flex w-full items-center gap-2 text-left transition ${
+                                  file.is_folder
+                                    ? "text-blue-600 hover:underline"
+                                    : "text-gray-800 hover:text-gray-900"
+                                }`}
+                              >
+                                <span className="truncate">{file.name}</span>
+                              </button>
+                            </td>
+                            <td className="px-3 py-3 align-middle text-gray-600">
+                              {file.is_folder ? "—" : formatBytes(file.size)}
+                            </td>
+                            <td className="px-3 py-3 align-middle text-gray-600">
+                              {formatDate(file.client_modified || file.server_modified)}
+                            </td>
+                            <td className="px-3 py-3 align-middle">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {!file.is_folder && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePreview(file.path)}
+                                    title="Preview file"
+                                    className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-blue-600 transition hover:bg-blue-50"
+                                  >
+                                    <FiEye className="h-4 w-4" aria-hidden="true" />
+                                  </button>
+                                )}
+                                {!file.is_folder && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownload(file.path)}
+                                    title="Download file"
+                                    className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-blue-600 transition hover:bg-blue-50"
+                                  >
+                                    <FiDownload className="h-4 w-4" aria-hidden="true" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRename(file.path)}
+                                  title="Rename item"
+                                  className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-gray-600 transition hover:bg-gray-100"
+                                >
+                                  <FiEdit2 className="h-4 w-4" aria-hidden="true" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSelected([file.path])}
+                                  title="Delete item"
+                                  className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-red-600 transition hover:bg-red-50"
+                                >
+                                  <FiTrash2 className="h-4 w-4" aria-hidden="true" />
+                                </button>
+                              </div>
+                            </td>
+                          </motion.tr>
+                        );
+                      })}
+                      {sortedFiles.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-10">
+                            <div className="flex flex-col items-center gap-3 text-sm text-gray-500">
+                              <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50"
+                              >
+                                <FiFolder className="h-8 w-8 text-blue-400" aria-hidden="true" />
+                              </motion.div>
+                              <p className="font-medium text-gray-700">No files found</p>
+                              <p className="text-xs text-gray-500">
+                                Upload files or create a folder to get started.
+                              </p>
+                            </div>
                           </td>
-                          <td className="px-3 py-3 align-middle">
-                            <span className="inline-flex items-center justify-center rounded-full bg-gray-100 p-2">
-                              {getFileIcon(file)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 align-middle">
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="space-y-3 p-2 md:hidden">
+                {sortedFiles.length === 0 ? (
+                  <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
+                    <FiFolder className="h-10 w-10 text-blue-400" aria-hidden="true" />
+                    <p className="font-medium text-gray-700">No files found</p>
+                    <p className="text-xs text-gray-500">Upload files or create a folder to get started.</p>
+                  </div>
+                ) : (
+                  sortedFiles.map((file) => {
+                    const isSelected = selectedFiles.includes(file.path);
+                    const detailsExpanded = expandedMobileDetails.has(file.path);
+                    const actionsExpanded = expandedMobileActions.has(file.path);
+                    const name = file.name || "Untitled";
+                    const modifiedLabel = formatDate(file.client_modified || file.server_modified);
+                    const sizeLabel = file.is_folder ? "—" : formatBytes(file.size);
+                    const pathDisplay = file.path_display || file.path || "";
+                    const ownerDisplay =
+                      file.owner_display_name ||
+                      file.sharing_info?.owner_display_name ||
+                      file.sharing_info?.modified_by ||
+                      file.client_modified_by ||
+                      "";
+                    const sharedStatus = file.sharing_info ? "Yes" : "No";
+
+                    return (
+                      <motion.div
+                        key={file.id || file.path}
+                        layout
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition ${
+                          isSelected ? "ring-2 ring-blue-500" : ""
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600">
+                            {getFileIcon(file)}
+                          </div>
+                          <div className="min-w-0 flex-1">
                             <button
                               type="button"
                               onClick={() =>
                                 file.is_folder ? navigateToFolder(file.path) : toggleSelection(file.path)
                               }
-                              title={file.is_folder ? "Open folder" : "Select file"}
-                              className={`flex w-full items-center gap-2 text-left transition ${
-                                file.is_folder
-                                  ? "text-blue-600 hover:underline"
-                                  : "text-gray-800 hover:text-gray-900"
+                              title={name}
+                              className={`block max-w-full text-left text-sm font-medium text-gray-900 transition hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                                file.is_folder ? "text-blue-600" : ""
                               }`}
                             >
-                              <span className="truncate">{file.name}</span>
+                              <span className="block line-clamp-2 sm:line-clamp-1">{name}</span>
                             </button>
-                          </td>
-                          <td className="px-3 py-3 align-middle text-gray-600">
-                            {file.is_folder ? "—" : formatBytes(file.size)}
-                          </td>
-                          <td className="px-3 py-3 align-middle text-gray-600">
-                            {formatDate(file.client_modified || file.server_modified)}
-                          </td>
-                          <td className="px-3 py-3 align-middle">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {!file.is_folder && (
-                                <button
-                                  type="button"
-                                  onClick={() => handlePreview(file.path)}
-                                  title="Preview file"
-                                  className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-blue-600 transition hover:bg-blue-50"
-                                >
-                                  <FiEye className="h-4 w-4" aria-hidden="true" />
-                                </button>
-                              )}
-                              {!file.is_folder && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownload(file.path)}
-                                  title="Download file"
-                                  className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-blue-600 transition hover:bg-blue-50"
-                                >
-                                  <FiDownload className="h-4 w-4" aria-hidden="true" />
-                                </button>
-                              )}
+                            <p className="mt-1 text-xs text-gray-500">
+                              {modifiedLabel}
+                              <span className="px-1">•</span>
+                              {sizeLabel}
+                            </p>
+                          </div>
+                          <div className="flex flex-shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyLink(file.path)}
+                              aria-label={`Copy link for ${name}`}
+                              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                            >
+                              <FiLink className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                            {!file.is_folder && (
+                              <button
+                                type="button"
+                                onClick={() => handleDownload(file.path)}
+                                aria-label={`Download ${name}`}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                              >
+                                <FiDownload className="h-4 w-4" aria-hidden="true" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => toggleMobileActions(file.path)}
+                              aria-expanded={actionsExpanded}
+                              aria-label={`More options for ${name}`}
+                              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                            >
+                              <FiMoreVertical className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {actionsExpanded && (
+                          <div className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-700">
+                            <button
+                              type="button"
+                              onClick={() => toggleSelection(file.path)}
+                              className="flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 text-left text-sm font-medium text-gray-700 transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0"
+                            >
+                              <span>{isSelected ? "Deselect" : "Select"}</span>
+                              <FiCheckSquare className={`h-4 w-4 ${isSelected ? "text-blue-500" : "text-gray-400"}`} aria-hidden="true" />
+                            </button>
+                            <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
                                 onClick={() => handleRename(file.path)}
-                                title="Rename item"
-                                className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-gray-600 transition hover:bg-gray-100"
+                                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0"
                               >
                                 <FiEdit2 className="h-4 w-4" aria-hidden="true" />
+                                <span>Rename</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSelected([file.path])}
-                                title="Delete item"
-                                className="inline-flex items-center justify-center rounded-md border border-transparent p-2 text-red-600 transition hover:bg-red-50"
+                                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-red-600 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-0"
                               >
                                 <FiTrash2 className="h-4 w-4" aria-hidden="true" />
+                                <span>Delete</span>
                               </button>
                             </div>
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                    {sortedFiles.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-10">
-                          <div className="flex flex-col items-center gap-3 text-sm text-gray-500">
-                            <motion.div
-                              initial={{ scale: 0.9, opacity: 0 }}
-                              animate={{ scale: 1, opacity: 1 }}
-                              className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50"
+                            <button
+                              type="button"
+                              onClick={() =>
+                                file.is_folder ? navigateToFolder(file.path) : handlePreview(file.path)
+                              }
+                              className="flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0"
                             >
-                              <FiFolder className="h-8 w-8 text-blue-400" aria-hidden="true" />
-                            </motion.div>
-                            <p className="font-medium text-gray-700">No files found</p>
-                            <p className="text-xs text-gray-500">
-                              Upload files or create a folder to get started.
-                            </p>
+                              <span>{file.is_folder ? "Open folder" : "Preview"}</span>
+                              <FiChevronRight className="h-4 w-4" aria-hidden="true" />
+                            </button>
                           </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => toggleMobileDetails(file.path)}
+                          aria-expanded={detailsExpanded}
+                          className="mt-3 flex h-10 w-full items-center justify-between rounded-md border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-0"
+                        >
+                          <span>Details</span>
+                          <FiChevronDown
+                            className={`h-4 w-4 transition-transform ${detailsExpanded ? "rotate-180" : ""}`}
+                            aria-hidden="true"
+                          />
+                        </button>
+
+                        {detailsExpanded && (
+                          <dl className="mt-2 space-y-2 text-xs text-gray-600">
+                            <div>
+                              <dt className="font-medium text-gray-500">Path</dt>
+                              <dd className="mt-1 whitespace-normal break-words text-gray-700">
+                                {pathDisplay || "—"}
+                              </dd>
+                            </div>
+                            {ownerDisplay && (
+                              <div>
+                                <dt className="font-medium text-gray-500">Owner</dt>
+                                <dd className="mt-1 text-gray-700">{ownerDisplay}</dd>
+                              </div>
+                            )}
+                            <div>
+                              <dt className="font-medium text-gray-500">Shared</dt>
+                              <dd className="mt-1 text-gray-700">{sharedStatus}</dd>
+                            </div>
+                            {file.rev && (
+                              <div>
+                                <dt className="font-medium text-gray-500">Revision</dt>
+                                <dd className="mt-1 text-gray-700 break-words">{file.rev}</dd>
+                              </div>
+                            )}
+                          </dl>
+                        )}
+                      </motion.div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
