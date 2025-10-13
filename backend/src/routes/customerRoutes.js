@@ -153,7 +153,8 @@ async function provisionCustomerFolder(customer, agent, transaction, userId) {
   const agentLabel = agent?.name || agent?.email || "admin";
 
   if (isLegacyDropboxPath(customer.dropbox_folder_path)) {
-    await customer.update({ dropbox_folder_path: null }, { transaction });
+    customer.set("dropbox_folder_path", null);
+    await customer.save({ transaction, fields: ["dropbox_folder_path"] });
   }
 
   const { path, created } = await ensureCustomerFolder(
@@ -163,7 +164,8 @@ async function provisionCustomerFolder(customer, agent, transaction, userId) {
   );
 
   if (!customer.dropbox_folder_path || customer.dropbox_folder_path !== path) {
-    await customer.update({ dropbox_folder_path: path }, { transaction });
+    customer.set("dropbox_folder_path", path);
+    await customer.save({ transaction, fields: ["dropbox_folder_path"] });
   }
 
   if (created) {
