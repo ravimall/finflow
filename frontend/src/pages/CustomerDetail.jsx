@@ -185,25 +185,25 @@ export default function CustomerDetail() {
   const agentName = customer.primaryAgent?.name || customer.primaryAgent?.email || "Admin";
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-8 pb-6">
+      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">{customer.name}</h1>
             <p className="font-mono text-xs text-gray-500">{customer.customer_id}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
               onClick={openDocuments}
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700"
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:w-auto"
             >
               📁 View Files
             </button>
           </div>
         </header>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1 text-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
             <p className="text-base text-gray-900">{customer.status}</p>
@@ -215,7 +215,7 @@ export default function CustomerDetail() {
                 <select
                   value={agentSelection}
                   onChange={handleAgentChange}
-                  className="rounded border border-gray-300 p-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Assign to admin</option>
                   {agents.map((agent) => (
@@ -252,24 +252,24 @@ export default function CustomerDetail() {
         </div>
       </section>
 
-      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <header className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Notes</h2>
+      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-xl font-semibold text-gray-900">Notes</h2>
         </header>
         <div className="space-y-2">
           <textarea
             value={noteInput}
             onChange={(event) => setNoteInput(event.target.value)}
             rows={3}
-            className="w-full rounded border border-gray-300 p-2 text-sm"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="Add a note for this customer"
           />
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <button
               type="button"
               onClick={addNote}
               disabled={notesLoading}
-              className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-60"
+              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {notesLoading ? "Saving…" : "Add Note"}
             </button>
@@ -281,7 +281,7 @@ export default function CustomerDetail() {
             <p className="text-sm text-gray-500">No notes yet.</p>
           ) : (
             notesView.map((item) => (
-              <article key={item.id} className="rounded border border-gray-100 bg-gray-50 p-3">
+              <article key={item.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
                 <header className="flex items-center justify-between text-xs text-gray-500">
                   <span className="font-medium text-gray-700">{item.author}</span>
                   <time>{item.timestamp}</time>
@@ -293,19 +293,19 @@ export default function CustomerDetail() {
         </div>
       </section>
 
-      <section className="space-y-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Loans</h2>
-            <p className="text-xs text-gray-500">
+            <h2 className="text-xl font-semibold text-gray-900">Loans</h2>
+            <p className="text-sm text-gray-500">
               Manage every loan linked to this customer.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
               onClick={() => setShowLoanForm((prev) => !prev)}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:w-auto"
             >
               {showLoanForm ? "Close" : "Add New Loan"}
             </button>
@@ -313,7 +313,7 @@ export default function CustomerDetail() {
         </header>
 
         {showLoanForm && (
-          <div className="rounded border border-dashed border-gray-300 bg-gray-50 p-4">
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
             <LoanForm
               onSuccess={() => {
                 setShowLoanForm(false);
@@ -328,38 +328,78 @@ export default function CustomerDetail() {
         )}
 
         {loansView.length === 0 ? (
-          <p className="text-sm text-gray-500">No loans recorded for this customer.</p>
+          <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+            No loans recorded for this customer.
+          </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Bank</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Status</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Applied</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Approved</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">ROI</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Last updated</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loansView.map((loan) => (
-                  <tr
-                    key={loan.id}
-                    className="cursor-pointer hover:bg-blue-50"
-                    onClick={() => setLoanDrawerId(loan.id)}
-                  >
-                    <td className="px-4 py-2">{loan.bank}</td>
-                    <td className="px-4 py-2">{loan.status}</td>
-                    <td className="px-4 py-2">{loan.applied}</td>
-                    <td className="px-4 py-2">{loan.approved}</td>
-                    <td className="px-4 py-2">{loan.roi}</td>
-                    <td className="px-4 py-2">{loan.updated}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm md:block">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-50">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      <th className="px-4 py-3">Bank</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Applied</th>
+                      <th className="px-4 py-3">Approved</th>
+                      <th className="px-4 py-3">ROI</th>
+                      <th className="px-4 py-3">Last updated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {loansView.map((loan) => (
+                      <tr
+                        key={loan.id}
+                        className="cursor-pointer transition hover:bg-blue-50/60"
+                        onClick={() => setLoanDrawerId(loan.id)}
+                      >
+                        <td className="px-4 py-3">{loan.bank}</td>
+                        <td className="px-4 py-3">{loan.status}</td>
+                        <td className="px-4 py-3">{loan.applied}</td>
+                        <td className="px-4 py-3">{loan.approved}</td>
+                        <td className="px-4 py-3">{loan.roi}</td>
+                        <td className="px-4 py-3">{loan.updated}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="space-y-3 md:hidden">
+              {loansView.map((loan) => (
+                <article
+                  key={loan.id}
+                  onClick={() => setLoanDrawerId(loan.id)}
+                  className="cursor-pointer rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+                >
+                  <header className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">{loan.bank}</h3>
+                      <p className="text-xs text-gray-500">Updated {loan.updated}</p>
+                    </div>
+                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                      {loan.status}
+                    </span>
+                  </header>
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
+                    <div>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Applied</dt>
+                      <dd className="text-gray-800">{loan.applied}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Approved</dt>
+                      <dd className="text-gray-800">{loan.approved}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">ROI</dt>
+                      <dd className="text-gray-800">{loan.roi}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+          </>
         )}
       </section>
 

@@ -100,22 +100,20 @@ export default function LoanForm({
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form onSubmit={submit} className="space-y-4 text-sm md:text-base">
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
         {disableCustomerSelection ? (
-          <div className="flex flex-col">
-            <label className="text-xs font-medium text-gray-500">Customer</label>
-            <div className="rounded border bg-gray-50 p-2 text-sm text-gray-700">
-              {customerName || "Selected customer"}
-            </div>
+          <div className="flex flex-col gap-1 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Customer</span>
+            <span>{customerName || "Selected customer"}</span>
           </div>
         ) : (
           <select
             name="customer_id"
             value={form.customer_id}
             onChange={handle}
-            className="border p-2 rounded"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required
           >
             <option value="">Select customer</option>
@@ -130,7 +128,7 @@ export default function LoanForm({
           name="status"
           value={form.status}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           disabled={!statuses.length}
         >
           {statuses.length === 0 && <option value="">Loading statuses...</option>}
@@ -147,7 +145,7 @@ export default function LoanForm({
             const value = event.target.value;
             setForm((prev) => ({ ...prev, bank_id: value, bank_name: value ? "" : prev.bank_name }));
           }}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">Custom bank</option>
           {banks.map((bank) => (
@@ -162,7 +160,7 @@ export default function LoanForm({
             placeholder="Bank name"
             value={form.bank_name}
             onChange={handle}
-            className="border p-2 rounded"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             required={!form.bank_id}
           />
         )}
@@ -171,7 +169,7 @@ export default function LoanForm({
           placeholder="Applied amount"
           value={form.applied_amount}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           type="number"
           step="0.01"
         />
@@ -180,7 +178,7 @@ export default function LoanForm({
           placeholder="Approved amount"
           value={form.approved_amount}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           type="number"
           step="0.01"
         />
@@ -189,7 +187,7 @@ export default function LoanForm({
           placeholder="Rate of interest (%)"
           value={form.rate_of_interest}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           type="number"
           step="0.01"
         />
@@ -199,7 +197,7 @@ export default function LoanForm({
         placeholder="Notes"
         value={form.notes}
         onChange={handle}
-        className="border p-2 rounded w-full"
+        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         rows={3}
       />
       <button
@@ -209,7 +207,7 @@ export default function LoanForm({
           !form.customer_id ||
           (!form.bank_id && !form.bank_name)
         }
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
+        className="inline-flex h-11 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
       >
         {submitting ? "Saving..." : "Create loan"}
       </button>

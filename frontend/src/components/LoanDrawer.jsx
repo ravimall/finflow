@@ -224,7 +224,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                       name="status"
                       value={form.status}
                       onChange={handleChange}
-                      className="rounded border p-2"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       {statusOptions.length === 0 && <option value="">No statuses configured</option>}
                       {statusOptions.map((status) => (
@@ -243,7 +243,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                       name="bank_id"
                       value={form.bank_id}
                       onChange={handleBankSelect}
-                      className="rounded border p-2"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">Custom bank</option>
                       {banks.map((bank) => (
@@ -258,7 +258,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                         value={form.bank_name}
                         onChange={handleChange}
                         placeholder="Bank name"
-                        className="rounded border p-2"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     )}
                   </div>
@@ -276,7 +276,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                       onChange={handleChange}
                       type="number"
                       step="0.01"
-                      className="rounded border p-2"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div className="flex flex-col gap-1 text-sm">
@@ -290,7 +290,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                       onChange={handleChange}
                       type="number"
                       step="0.01"
-                      className="rounded border p-2"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div className="flex flex-col gap-1 text-sm">
@@ -304,7 +304,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                       onChange={handleChange}
                       type="number"
                       step="0.01"
-                      className="rounded border p-2"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
@@ -319,7 +319,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                     value={form.notes}
                     onChange={handleChange}
                     rows={4}
-                    className="rounded border p-2"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -334,7 +334,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                className="inline-flex h-10 items-center justify-center rounded-full border border-gray-300 px-4 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
               >
                 Close
               </button>
@@ -342,7 +342,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
                 type="button"
                 onClick={save}
                 disabled={saving || loading}
-                className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-60"
+                className="inline-flex h-10 items-center justify-center rounded-full bg-green-600 px-4 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Save changes"}
               </button>

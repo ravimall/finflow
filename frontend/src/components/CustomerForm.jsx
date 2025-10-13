@@ -76,22 +76,22 @@ export default function CustomerForm({ onSuccess }) {
   };
 
   return (
-    <form onSubmit={submit} className="space-y-3">
+    <form onSubmit={submit} className="space-y-4 text-sm md:text-base">
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
         <input
           name="name"
           placeholder="Customer name"
           value={form.name}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           required
         />
         <select
           name="status"
           value={form.status}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           disabled={!statuses.length}
         >
           {statuses.length === 0 && <option value="">Loading statuses...</option>}
@@ -106,27 +106,29 @@ export default function CustomerForm({ onSuccess }) {
           placeholder="Phone"
           value={form.phone}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <input
           name="email"
           placeholder="Email"
           value={form.email}
           onChange={handle}
-          className="border p-2 rounded"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           type="email"
         />
+        <div className="sm:col-span-2 lg:col-span-1">
+          <textarea
+            name="address"
+            placeholder="Address"
+            value={form.address}
+            onChange={handle}
+            className="h-full min-h-[120px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            rows={3}
+          />
+        </div>
       </div>
-      <textarea
-        name="address"
-        placeholder="Address"
-        value={form.address}
-        onChange={handle}
-        className="border p-2 rounded w-full"
-        rows={3}
-      />
-      <div className="flex flex-col md:flex-row md:items-center md:space-x-3 space-y-2 md:space-y-0">
-        <label className="text-sm text-gray-600" htmlFor="agent">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:items-center">
+        <label className="text-xs font-medium uppercase tracking-wide text-gray-500 sm:text-sm" htmlFor="agent">
           Assign agent
         </label>
         <select
@@ -134,7 +136,7 @@ export default function CustomerForm({ onSuccess }) {
           name="agent_id"
           value={form.agent_id}
           onChange={handle}
-          className="border p-2 rounded flex-1"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">Auto-assign (Admin)</option>
           {agentOptions.map((option) => (
@@ -144,13 +146,15 @@ export default function CustomerForm({ onSuccess }) {
           ))}
         </select>
       </div>
-      <button
-        type="submit"
-        disabled={submitting}
-        className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-60"
-      >
-        {submitting ? "Creating..." : "Create Customer"}
-      </button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="inline-flex h-11 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+        >
+          {submitting ? "Creating..." : "Create Customer"}
+        </button>
+      </div>
     </form>
   );
 }
