@@ -7,6 +7,7 @@
     "dev": "nodemon src/app.js",
     "start": "node src/app.js",
     "lint": "eslint .",
+    "backfill:dropbox": "node src/scripts/backfillDropboxIds.js",
     "check:cors": "PORT=${PORT:-5000} ORIGIN=https://shubhadevelopers.com sh -c 'curl -i -X OPTIONS \"http://localhost:$PORT/api/customers\" -H \"Origin: $ORIGIN\" -H \"Access-Control-Request-Method: GET\" -H \"Access-Control-Request-Headers: authorization,content-type\"'"
   },
   "keywords": [
