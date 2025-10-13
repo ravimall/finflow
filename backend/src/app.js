@@ -12,6 +12,32 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const allowedOrigins = [
+  "https://shubhadevelopers.com",
+  "http://localhost:5173",
+  "http://localhost:3000"
+];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+
+const corsMiddleware = cors(corsOptions);
+
 // -----------------------------
 // ? Logger setup
 // -----------------------------
@@ -30,7 +56,8 @@ const logger = winston.createLogger({
 // -----------------------------
 // ? Middleware
 // -----------------------------
-app.use(cors({ origin: "*", credentials: true }));
+app.use(corsMiddleware);
+app.options("*", corsMiddleware);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -58,12 +85,16 @@ const customerRoutes = require("./routes/customerRoutes");
 const loanRoutes = require("./routes/loanRoutes");
 const documentRoutes = require("./routes/documentRoutes");
 const reportRoutes = require("./routes/reportRoutes");
+const adminConfigRoutes = require("./routes/adminConfigRoutes");
+const configRoutes = require("./routes/configRoutes");
 
 app.use("/api/users", userRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/config", configRoutes);
+app.use("/api/admin/config", adminConfigRoutes);
 
 // -----------------------------
 // ? Root route
@@ -77,6 +108,19 @@ app.get("/", (req, res) => {
 // -----------------------------
 app.use((err, req, res, next) => {
   logger.error(err.stack);
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", corsOptions.allowedHeaders.join(", "));
+    res.setHeader("Access-Control-Allow-Methods", corsOptions.methods.join(", "));
+    res.append("Vary", "Origin");
+  }
+
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({ error: "CORS origin denied" });
+  }
+
   res.status(500).json({ error: "Something went wrong!" });
 });
 
