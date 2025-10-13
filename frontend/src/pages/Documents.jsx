@@ -76,19 +76,23 @@ export default function Documents() {
   };
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-6 pb-6">
+      <header className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-xl font-bold">
+          <h1 className="text-2xl font-semibold text-gray-900 md:text-3xl">
             Documents{selectedCustomerData ? ` — ${selectedCustomerData.name}` : ""}
           </h1>
-          <p className="text-xs text-gray-500">Browse and manage customer Dropbox files.</p>
+          <p className="text-sm text-gray-500 md:text-base">Browse and manage customer Dropbox files.</p>
         </div>
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <label className="text-xs font-medium uppercase tracking-wide text-gray-500 sm:hidden" htmlFor="customer-picker">
+            Select customer
+          </label>
           <select
+            id="customer-picker"
             value={selectedCustomer}
             onChange={(event) => handleSelectionChange(event.target.value)}
-            className="border rounded p-2 min-w-[240px]"
+            className="h-11 w-full rounded-full border border-gray-300 bg-white px-4 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:min-w-[240px]"
             disabled={!hasCustomers}
           >
             {hasCustomers ? (
@@ -108,17 +112,19 @@ export default function Documents() {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {!hasCustomers && !loading && (
-        <p className="text-sm text-gray-600">
+        <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-600 md:text-base">
           No customers available. Create a customer to browse Dropbox files.
         </p>
       )}
 
       {hasCustomers && selectedCustomer && (
-        <FileExplorer
-          customerId={selectedCustomer}
-          customerName={selectedCustomerData?.name}
-          key={selectedCustomer}
-        />
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+          <FileExplorer
+            customerId={selectedCustomer}
+            customerName={selectedCustomerData?.name}
+            key={selectedCustomer}
+          />
+        </div>
       )}
     </div>
   );

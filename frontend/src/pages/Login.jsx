@@ -19,15 +19,20 @@ export default function Login() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen">
-      <h1 className="text-2xl font-bold mb-4">FinFlow Login</h1>
-      <button
-        onClick={googleLogin}
-        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-      >
-        Sign in with Google
-      </button>
-    </div>
+    <section className="flex min-h-[60vh] flex-col items-center justify-center py-12">
+      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 text-center shadow-sm">
+        <h1 className="text-xl font-semibold text-gray-900 md:text-2xl">FinFlow Login</h1>
+        <p className="mt-2 text-sm text-gray-500 md:text-base">
+          Continue with your Google workspace account to access FinFlow.
+        </p>
+        <button
+          onClick={googleLogin}
+          className="mt-6 inline-flex h-12 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+        >
+          Sign in with Google
+        </button>
+      </div>
+    </section>
   );
 }
 

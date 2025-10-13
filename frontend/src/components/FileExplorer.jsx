@@ -722,7 +722,7 @@ export default function FileExplorer({ customerId, customerName }) {
             onClick={handleCreateRootFolder}
             disabled={isCreatingFolder}
             title="Create Dropbox folder"
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-11 items-center gap-2 rounded-full bg-blue-600 px-5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <FiFolder className="h-4 w-4" aria-hidden="true" />
             {isCreatingFolder ? "Creating folder…" : "Create Dropbox Folder"}
@@ -739,7 +739,7 @@ export default function FileExplorer({ customerId, customerName }) {
                 onClick={handleBack}
                 disabled={isRoot}
                 title="Go back one level"
-                className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-gray-200 px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <FiChevronLeft className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">Back</span>
@@ -808,7 +808,7 @@ export default function FileExplorer({ customerId, customerName }) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               title="Upload files"
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
             >
               <FiUpload className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">Upload Files</span>
@@ -824,7 +824,7 @@ export default function FileExplorer({ customerId, customerName }) {
               type="button"
               onClick={handleNewFolder}
               title="Create a new folder"
-              className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200"
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-gray-200 px-4 text-sm font-medium text-gray-700 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200"
             >
               <FiPlusCircle className="h-4 w-4" aria-hidden="true" />
               <span className="hidden sm:inline">New Folder</span>
@@ -834,7 +834,7 @@ export default function FileExplorer({ customerId, customerName }) {
               onClick={handleDeleteSelected}
               title="Delete selected items"
               disabled={totalSelected === 0}
-              className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-red-200 ${
+              className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-red-200 ${
                 totalSelected === 0
                   ? "cursor-not-allowed border-gray-200 text-gray-400"
                   : "border-red-200 text-red-600 hover:bg-red-50"
@@ -848,7 +848,7 @@ export default function FileExplorer({ customerId, customerName }) {
               onClick={() => fetchFiles({ refresh: true, path: currentPath || rootPath })}
               title="Refresh folder"
               disabled={isRefreshing}
-              className={`inline-flex items-center gap-2 rounded-md border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition focus:outline-none focus:ring-2 focus:ring-gray-200 ${
+              className={`inline-flex h-10 items-center gap-2 rounded-full border border-gray-200 px-4 text-sm font-medium text-gray-700 transition focus:outline-none focus:ring-2 focus:ring-gray-200 ${
                 isRefreshing ? "cursor-wait opacity-70" : "hover:bg-gray-100"
               }`}
             >
@@ -860,7 +860,7 @@ export default function FileExplorer({ customerId, customerName }) {
               onClick={() => handleRename()}
               title="Rename selected item"
               disabled={totalSelected !== 1}
-              className={`inline-flex items-center gap-2 rounded-md border border-gray-200 px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-gray-200 ${
+              className={`inline-flex h-10 items-center gap-2 rounded-full border border-gray-200 px-4 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-gray-200 ${
                 totalSelected !== 1
                   ? "cursor-not-allowed text-gray-400"
                   : "text-gray-700 hover:bg-gray-100"
@@ -873,7 +873,7 @@ export default function FileExplorer({ customerId, customerName }) {
               type="button"
               onClick={togglePreviewPanel}
               title={showPreview ? "Hide preview panel" : "Show preview panel"}
-              className={`inline-flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+              className={`inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-blue-200 ${
                 showPreview
                   ? "border-blue-200 bg-blue-50 text-blue-600"
                   : "border-gray-200 text-gray-700 hover:bg-gray-100"
