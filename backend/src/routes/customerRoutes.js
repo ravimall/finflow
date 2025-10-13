@@ -47,7 +47,8 @@ function handleDropboxError(res, err, fallbackMessage) {
   }
 
   const statusCode = err?.statusCode || err?.status || 500;
-  return res.status(statusCode).json({ error: normalizedMessage });
+  const effectiveStatus = statusCode >= 400 && statusCode < 500 ? 502 : statusCode;
+  return res.status(effectiveStatus).json({ error: normalizedMessage });
 }
 
 async function cleanupLegacyDropboxReferences() {

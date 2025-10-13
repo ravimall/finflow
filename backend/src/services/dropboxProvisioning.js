@@ -117,34 +117,44 @@ async function provisionDropboxForCustomer(customerId, options = {}) {
 
   const plainCustomer = customer.get({ plain: true });
 
+  let baseUpdates = {};
+
   try {
     const folderDetails = await getOrCreateCustomerFolder(plainCustomer);
 
-    const updates = {
+    baseUpdates = {
       dropboxFolderId: folderDetails.folderId || plainCustomer.dropboxFolderId || null,
       dropboxFolderPath: folderDetails.pathDisplay || plainCustomer.dropboxFolderPath || null,
       dropboxSharedFolderId:
         folderDetails.sharedFolderId || plainCustomer.dropboxSharedFolderId || null,
-      dropboxProvisioningStatus: "ok",
-      dropboxLastError: null,
     };
 
-    if (!updates.dropboxFolderPath && updates.dropboxFolderId) {
-      updates.dropboxFolderPath = await resolveFolderPath(updates.dropboxFolderId);
+    if (!baseUpdates.dropboxFolderPath && baseUpdates.dropboxFolderId) {
+      baseUpdates.dropboxFolderPath = await resolveFolderPath(baseUpdates.dropboxFolderId);
+    }
+
+    if (Object.keys(baseUpdates).length) {
+      await Customer.update(baseUpdates, { where: { id: customer.id } });
     }
 
     const membershipResult = await ensureMembers(
-      updates.dropboxFolderId,
-      updates.dropboxSharedFolderId,
+      baseUpdates.dropboxFolderId,
+      baseUpdates.dropboxSharedFolderId,
       desiredMembers
     );
 
     if (
       membershipResult.sharedFolderId &&
-      membershipResult.sharedFolderId !== updates.dropboxSharedFolderId
+      membershipResult.sharedFolderId !== baseUpdates.dropboxSharedFolderId
     ) {
-      updates.dropboxSharedFolderId = membershipResult.sharedFolderId;
+      baseUpdates.dropboxSharedFolderId = membershipResult.sharedFolderId;
     }
+
+    const updates = {
+      ...baseUpdates,
+      dropboxProvisioningStatus: "ok",
+      dropboxLastError: null,
+    };
 
     await Customer.update(updates, { where: { id: customer.id } });
 
@@ -154,7 +164,14 @@ async function provisionDropboxForCustomer(customerId, options = {}) {
     return updates;
   } catch (error) {
     const summary = summarizeError(error);
-    await setProvisioningStatus(customer.id, "failed", summary);
+    const failureUpdates = {
+      ...baseUpdates,
+      dropboxProvisioningStatus: "failed",
+      dropboxLastError: summary,
+    };
+
+    await Customer.update(failureUpdates, { where: { id: customer.id } });
+
     console.error(
       `❌ Dropbox provisioning failed for customer ${customer.id} (trigger=${trigger}): ${summary}`
     );
