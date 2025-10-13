@@ -31,6 +31,9 @@ export default function CustomerDetail() {
 
   const [customer, setCustomer] = useState(null);
   const [dropboxLink, setDropboxLink] = useState(null);
+  const [dropboxRetryMessage, setDropboxRetryMessage] = useState("");
+  const [dropboxRetryError, setDropboxRetryError] = useState("");
+  const [dropboxActionLoading, setDropboxActionLoading] = useState(false);
   const [agents, setAgents] = useState([]);
   const [agentSelection, setAgentSelection] = useState("");
   const [agentError, setAgentError] = useState("");
@@ -44,11 +47,24 @@ export default function CustomerDetail() {
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const customerRecordId = customer?.id ?? null;
+  const dropboxProvisioningStatus =
+    dropboxLink?.customer?.dropboxProvisioningStatus ??
+    customer?.dropboxProvisioningStatus ??
+    "pending";
 
   const fetchDropboxLink = useCallback(async () => {
     try {
       const response = await api.get(`/api/customers/${id}/dropbox-link`);
       setDropboxLink(response.data);
+      if (response.data?.customer) {
+        setCustomer((prev) => {
+          if (!prev) {
+            return response.data.customer;
+          }
+          return { ...prev, ...response.data.customer };
+        });
+      }
     } catch (err) {
       setDropboxLink(null);
     }
@@ -82,6 +98,33 @@ export default function CustomerDetail() {
     }
   }, [isAdmin]);
 
+  const retryDropboxProvisioning = useCallback(async () => {
+    if (!customerRecordId) return;
+    setDropboxActionLoading(true);
+    setDropboxRetryMessage("");
+    setDropboxRetryError("");
+    try {
+      const response = await api.post(
+        `/api/customers/${customerRecordId}/provision-dropbox`
+      );
+      if (response.data?.customer) {
+        setCustomer((prev) => ({ ...prev, ...response.data.customer }));
+      }
+      setDropboxRetryMessage(
+        "Dropbox provisioning has been enqueued. This may take up to a minute."
+      );
+      await fetchDropboxLink();
+    } catch (err) {
+      const message =
+        err.response?.data?.error ||
+        err.message ||
+        "Unable to trigger Dropbox provisioning";
+      setDropboxRetryError(message);
+    } finally {
+      setDropboxActionLoading(false);
+    }
+  }, [customerRecordId, fetchDropboxLink]);
+
   const loadCustomer = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -104,6 +147,14 @@ export default function CustomerDetail() {
     loadCustomer();
   }, [loadCustomer]);
 
+  useEffect(() => {
+    if (dropboxProvisioningStatus === "ok") {
+      setDropboxRetryMessage("");
+      setDropboxRetryError("");
+      setDropboxActionLoading(false);
+    }
+  }, [dropboxProvisioningStatus]);
+
   const handleAgentChange = async (event) => {
     if (!customer) return;
     const nextValue = event.target.value;
@@ -116,6 +167,8 @@ export default function CustomerDetail() {
       setCustomer(response.data?.customer ?? customer);
       setAgentSelection(response.data?.agent?.id ? String(response.data.agent.id) : "");
       setAgentSuccess("Agent assignment updated");
+      setDropboxRetryMessage("");
+      setDropboxRetryError("");
       await fetchDropboxLink();
     } catch (err) {
       const message = err.response?.data?.error || err.message || "Unable to assign agent";
@@ -183,6 +236,24 @@ export default function CustomerDetail() {
 
   const dropboxPath = dropboxLink?.customer?.dropboxFolderPath || customer.dropboxFolderPath;
   const dropboxUrl = dropboxLink?.dropbox_url || null;
+  const dropboxStatus = dropboxProvisioningStatus.toLowerCase();
+  const isDropboxReady = dropboxStatus === "ok";
+  const dropboxLastError =
+    dropboxLink?.customer?.dropboxLastError ?? customer.dropboxLastError ?? "";
+  const shouldShowDropboxBanner = dropboxStatus !== "ok";
+  let dropboxBannerMessage = "Dropbox link is setting up.";
+  if (dropboxStatus === "failed") {
+    dropboxBannerMessage = dropboxLastError
+      ? `Dropbox setup failed: ${dropboxLastError}`
+      : "Dropbox setup failed. Retry the provisioning to refresh access.";
+  } else if (dropboxStatus === "pending") {
+    dropboxBannerMessage = "Dropbox link is being provisioned. You can retry if needed.";
+  }
+  const dropboxBannerClasses =
+    dropboxStatus === "failed"
+      ? "border-red-200 bg-red-50 text-red-800"
+      : "border-amber-200 bg-amber-50 text-amber-800";
+  const shouldShowRetryButton = dropboxStatus !== "ok";
   const agentName = customer.primaryAgent?.name || customer.primaryAgent?.email || "Admin";
 
   return (
@@ -201,7 +272,7 @@ export default function CustomerDetail() {
             >
               📁 View Files
             </button>
-            {dropboxUrl ? (
+            {isDropboxReady && dropboxUrl ? (
               <a
                 href={dropboxUrl}
                 target="_blank"
@@ -210,9 +281,41 @@ export default function CustomerDetail() {
               >
                 🔗 Open Dropbox
               </a>
-            ) : null}
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-500 transition sm:w-auto disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                🔗 Open Dropbox
+              </button>
+            )}
           </div>
         </header>
+
+        {shouldShowDropboxBanner && (
+          <div className={`rounded-xl border px-4 py-3 text-sm ${dropboxBannerClasses}`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex-1">{dropboxBannerMessage}</p>
+              {shouldShowRetryButton && (
+                <button
+                  type="button"
+                  onClick={retryDropboxProvisioning}
+                  disabled={dropboxActionLoading}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-current px-4 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {dropboxActionLoading ? "Retrying…" : "Retry Dropbox setup"}
+                </button>
+              )}
+            </div>
+            {dropboxRetryMessage && (
+              <p className="mt-2 text-xs font-medium text-green-700">{dropboxRetryMessage}</p>
+            )}
+            {dropboxRetryError && (
+              <p className="mt-2 text-xs font-medium text-red-700">{dropboxRetryError}</p>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1 text-sm">

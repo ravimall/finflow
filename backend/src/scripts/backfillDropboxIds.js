@@ -69,7 +69,10 @@ async function processCustomer(customer, transaction) {
     }
   }
 
-  const updates = {};
+  const updates = {
+    dropboxProvisioningStatus: "ok",
+    dropboxLastError: null,
+  };
   if (folderId && folderId !== customer.dropboxFolderId) {
     updates.dropboxFolderId = folderId;
   }
@@ -80,9 +83,7 @@ async function processCustomer(customer, transaction) {
     updates.dropboxFolderPath = folderPath;
   }
 
-  if (Object.keys(updates).length) {
-    await customer.update(updates, { transaction });
-  }
+  await customer.update(updates, { transaction });
 
   if (folderId) {
     const admins = await fetchAdmins(transaction);

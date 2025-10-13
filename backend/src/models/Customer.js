@@ -28,6 +28,17 @@ const Customer = sequelize.define(
       allowNull: true,
       field: "dropbox_folder_path",
     },
+    dropboxProvisioningStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: "pending",
+      field: "dropbox_provisioning_status",
+    },
+    dropboxLastError: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: "dropbox_last_error",
+    },
   },
   {
     timestamps: true,

@@ -131,13 +131,24 @@ async function listCurrentMembers(sharedFolderId) {
     return { byEmail: new Map(), entries: [] };
   }
 
-  const response = await dbx.sharingListFolderMembers({ shared_folder_id: sharedFolderId });
-  const result = unwrap(response);
-  const allEntries = [
+  const allEntries = [];
+  let response = await dbx.sharingListFolderMembers({ shared_folder_id: sharedFolderId });
+  let result = unwrap(response);
+  allEntries.push(
     ...(result?.users || []),
     ...(result?.groups || []),
-    ...(result?.invitees || []),
-  ];
+    ...(result?.invitees || [])
+  );
+
+  while (result?.has_more && result?.cursor) {
+    response = await dbx.sharingListFolderMembersContinue({ cursor: result.cursor });
+    result = unwrap(response);
+    allEntries.push(
+      ...(result?.users || []),
+      ...(result?.groups || []),
+      ...(result?.invitees || [])
+    );
+  }
 
   const byEmail = new Map();
   for (const entry of allEntries) {
@@ -212,11 +223,25 @@ async function ensureMembers(folderId, sharedFolderId, desiredMembers = []) {
   }
 
   if (toAdd.length) {
-    await dbx.sharingAddFolderMember({
-      shared_folder_id: effectiveSharedId,
-      members: toAdd,
-      quiet: true,
-    });
+    try {
+      await dbx.sharingAddFolderMember({
+        shared_folder_id: effectiveSharedId,
+        members: toAdd,
+        quiet: true,
+      });
+    } catch (error) {
+      const summary = error?.error?.error_summary || "";
+      const ignorable =
+        summary.includes("member_already_on_folder") ||
+        summary.includes("email_unverified") ||
+        summary.includes("team_policy_disallows_member");
+      if (!ignorable) {
+        throw error;
+      }
+      console.warn(
+        `⚠️ Ignoring Dropbox member add error for ${effectiveSharedId}: ${summary || error.message}`
+      );
+    }
   }
 
   const removed = [];
@@ -228,12 +253,23 @@ async function ensureMembers(folderId, sharedFolderId, desiredMembers = []) {
     if (membership === "owner") {
       continue;
     }
-    await dbx.sharingRemoveFolderMember({
-      shared_folder_id: effectiveSharedId,
-      member: { ".tag": "email", email },
-      leave_a_copy: false,
-    });
-    removed.push(email);
+    try {
+      await dbx.sharingRemoveFolderMember({
+        shared_folder_id: effectiveSharedId,
+        member: { ".tag": "email", email },
+        leave_a_copy: false,
+      });
+      removed.push(email);
+    } catch (error) {
+      const summary = error?.error?.error_summary || "";
+      const ignorable = summary.includes("not_on_folder") || summary.includes("team_policy_disallows_member");
+      if (!ignorable) {
+        throw error;
+      }
+      console.warn(
+        `⚠️ Ignoring Dropbox member removal error for ${effectiveSharedId}:${email}: ${summary || error.message}`
+      );
+    }
   }
 
   return { added: toAdd.map((item) => item.member.email), removed, sharedFolderId: effectiveSharedId };
