@@ -9,6 +9,9 @@ const ConfigStatus = require("./ConfigStatus");
 const ConfigBank = require("./ConfigBank");
 const AuditLog = require("./AuditLog");
 const CustomerNote = require("./CustomerNote");
+const Task = require("./Task");
+const TaskTemplate = require("./TaskTemplate");
+const TaskTemplateItem = require("./TaskTemplateItem");
 
 // Define associations
 User.hasMany(Customer, { foreignKey: "created_by", as: "createdCustomers" });
@@ -33,6 +36,23 @@ Customer.hasMany(CustomerNote, { foreignKey: "customer_id", as: "notes" });
 CustomerNote.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
 CustomerNote.belongsTo(User, { foreignKey: "user_id", as: "author" });
 User.hasMany(CustomerNote, { foreignKey: "user_id", as: "customerNotes" });
+
+Customer.hasMany(Task, { foreignKey: "customer_id", as: "tasks" });
+Task.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
+Task.belongsTo(User, { foreignKey: "assignee_id", as: "assignee" });
+User.hasMany(Task, { foreignKey: "assignee_id", as: "assignedTasks" });
+
+Task.belongsTo(TaskTemplate, { foreignKey: "template_id", as: "template" });
+TaskTemplate.hasMany(Task, { foreignKey: "template_id", as: "tasks" });
+
+TaskTemplate.hasMany(TaskTemplateItem, {
+  foreignKey: "template_id",
+  as: "items",
+});
+TaskTemplateItem.belongsTo(TaskTemplate, {
+  foreignKey: "template_id",
+  as: "template",
+});
 
 AuditLog.belongsTo(User, { foreignKey: "user_id", as: "user" });
 AuditLog.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
@@ -62,4 +82,7 @@ module.exports = {
   ConfigBank,
   AuditLog,
   CustomerNote,
+  Task,
+  TaskTemplate,
+  TaskTemplateItem,
 };

@@ -12,6 +12,9 @@ const {
   Loan,
   ConfigStatus,
   ConfigBank,
+  Task,
+  TaskTemplate,
+  TaskTemplateItem,
 } = require("../models");
 const auth = require("../middleware/auth");
 const { listFolder, combineWithinFolder, logDropboxAction } = require("../utils/dropbox");
@@ -85,6 +88,22 @@ function logDropboxPathUpdate(customerId, path) {
   console.info(
     `[DropboxPathUpdate] id=${customerId} path=${serializedPath ? JSON.stringify(serializedPath) : "null"}`
   );
+}
+
+function calculateAgingDays(stageStartedAt, updatedAt, createdAt) {
+  const reference = stageStartedAt || updatedAt || createdAt;
+  if (!reference) {
+    return 0;
+  }
+  const timestamp = new Date(reference).getTime();
+  if (Number.isNaN(timestamp)) {
+    return 0;
+  }
+  const diffMs = Date.now() - timestamp;
+  if (Number.isNaN(diffMs) || diffMs <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
 }
 
 function resolveErrorStatus(err, defaultStatus = 500) {
@@ -170,6 +189,43 @@ async function ensureAgentAssignment(customerId, agentId, transaction) {
     defaults: { permission: "edit" },
     transaction,
   });
+}
+
+async function resolveTaskAssignee(customer, requestedAssigneeId, defaultRole, transaction) {
+  if (requestedAssigneeId) {
+    const parsed = Number(requestedAssigneeId);
+    if (Number.isNaN(parsed)) {
+      const err = new Error("Invalid assignee");
+      err.statusCode = 400;
+      throw err;
+    }
+    const user = await User.findByPk(parsed, { transaction });
+    if (!user) {
+      const err = new Error("Assignee not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return user.id;
+  }
+
+  const ownerId = customer?.primary_agent_id || customer?.created_by || null;
+
+  if (defaultRole === "agent" && ownerId) {
+    return ownerId;
+  }
+
+  if (defaultRole === "admin") {
+    const admin = await User.findOne({
+      where: { role: "admin" },
+      order: [["id", "ASC"]],
+      transaction,
+    });
+    if (admin) {
+      return admin.id;
+    }
+  }
+
+  return ownerId;
 }
 
 async function assertCustomerAccess(user, customerId) {
@@ -296,9 +352,29 @@ router.get("/:id", auth(), async (req, res) => {
     const customer = await Customer.findByPk(req.params.id, {
       include: [
         { model: User, as: "primaryAgent", attributes: ["id", "name", "email"] },
+        {
+          model: Loan,
+          as: "loans",
+          include: [{ model: ConfigBank, as: "bank", attributes: ["id", "name"] }],
+        },
       ],
     });
     if (!customer) return res.status(404).json({ error: "Customer not found" });
+
+    if (Array.isArray(customer.loans)) {
+      customer.loans = customer.loans
+        .map((loan) => {
+          const aging = calculateAgingDays(
+            loan.stage_started_at,
+            loan.updated_at,
+            loan.created_at
+          );
+          loan.setDataValue("aging_days", aging);
+          return loan;
+        })
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    }
+
     res.json(customer);
   } catch (err) {
     const statusCode = resolveErrorStatus(err);
@@ -532,6 +608,207 @@ router.post(
   }
 );
 
+router.get("/:id/tasks", auth(), async (req, res) => {
+  try {
+    await assertCustomerAccess(req.user, req.params.id);
+    const tasks = await Task.findAll({
+      where: { customer_id: req.params.id },
+      include: [
+        { model: User, as: "assignee", attributes: ["id", "name", "email", "role"] },
+      ],
+    });
+
+    const sorted = tasks
+      .map((task) => {
+        const json = task.toJSON();
+        return json;
+      })
+      .sort((a, b) => {
+        if (a.status !== b.status) {
+          return a.status === "pending" ? -1 : 1;
+        }
+        if (a.due_on && b.due_on) {
+          if (a.due_on < b.due_on) return -1;
+          if (a.due_on > b.due_on) return 1;
+        } else if (a.due_on && !b.due_on) {
+          return -1;
+        } else if (!a.due_on && b.due_on) {
+          return 1;
+        }
+        const createdA = new Date(a.created_at);
+        const createdB = new Date(b.created_at);
+        return createdA - createdB;
+      });
+
+    res.json(sorted);
+  } catch (err) {
+    const statusCode = resolveErrorStatus(err);
+    res.status(statusCode).json({ error: err.message });
+  }
+});
+
+router.post(
+  "/:id/tasks",
+  auth(),
+  body("title").isString().isLength({ min: 1 }).withMessage("Title is required"),
+  body("due_on").optional().isISO8601().toDate(),
+  body("remind_on").optional().isISO8601().toDate(),
+  body("assignee_id").optional().isInt({ min: 1 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      await assertCustomerAccess(req.user, req.params.id);
+      const customer = await Customer.findByPk(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+
+      const task = await sequelize.transaction(async (transaction) => {
+        const assigneeId = await resolveTaskAssignee(
+          customer,
+          req.body.assignee_id,
+          null,
+          transaction
+        );
+
+        const payload = {
+          customer_id: customer.id,
+          title: req.body.title.trim(),
+          notes: req.body.notes ?? null,
+          assignee_id: assigneeId ?? null,
+          status: "pending",
+          template_id: null,
+        };
+
+        if (req.body.due_on instanceof Date && !Number.isNaN(req.body.due_on.getTime())) {
+          payload.due_on = req.body.due_on;
+        }
+
+        if (
+          req.body.remind_on instanceof Date &&
+          !Number.isNaN(req.body.remind_on.getTime())
+        ) {
+          payload.remind_on = req.body.remind_on;
+        }
+
+        const createdTask = await Task.create(payload, { transaction });
+        return createdTask;
+      });
+
+      const hydrated = await Task.findByPk(task.id, {
+        include: [
+          { model: User, as: "assignee", attributes: ["id", "name", "email", "role"] },
+        ],
+      });
+
+      res.status(201).json(hydrated);
+    } catch (err) {
+      const statusCode = resolveErrorStatus(err);
+      res.status(statusCode).json({ error: err.message });
+    }
+  }
+);
+
+router.post(
+  "/:id/tasks/templates/apply",
+  auth(),
+  body("template_id").isUUID().withMessage("template_id is required"),
+  body("assignee_id").optional().isInt({ min: 1 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      await assertCustomerAccess(req.user, req.params.id);
+      const customer = await Customer.findByPk(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ error: "Customer not found" });
+      }
+
+      const template = await TaskTemplate.findOne({
+        where: { id: req.body.template_id, is_active: true },
+        include: [{ model: TaskTemplateItem, as: "items" }],
+      });
+
+      if (!template) {
+        return res.status(404).json({ error: "Template not found or inactive" });
+      }
+
+      const items = Array.isArray(template.items)
+        ? [...template.items].sort((a, b) => a.sort_order - b.sort_order)
+        : [];
+
+      if (items.length === 0) {
+        return res.json({ created_task_ids: [], skipped_titles: [] });
+      }
+
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 3);
+
+      const existing = await Task.findAll({
+        where: {
+          customer_id: customer.id,
+          status: "pending",
+          created_at: { [Op.gte]: cutoff },
+        },
+      });
+
+      const existingTitles = new Set(existing.map((task) => task.title));
+      const createdTaskIds = [];
+      const skippedTitles = [];
+
+      await sequelize.transaction(async (transaction) => {
+        for (const item of items) {
+          if (!item.title || existingTitles.has(item.title)) {
+            if (item.title) {
+              skippedTitles.push(item.title);
+            }
+            continue;
+          }
+
+          const assigneeId = await resolveTaskAssignee(
+            customer,
+            req.body.assignee_id,
+            item.default_assignee_role,
+            transaction
+          );
+
+          const dueDate = new Date();
+          dueDate.setUTCHours(0, 0, 0, 0);
+          dueDate.setUTCDate(dueDate.getUTCDate() + (item.offset_days || 0));
+
+          const createdTask = await Task.create(
+            {
+              customer_id: customer.id,
+              title: item.title,
+              notes: item.notes ?? null,
+              assignee_id: assigneeId ?? null,
+              due_on: dueDate,
+              template_id: template.id,
+              status: "pending",
+            },
+            { transaction }
+          );
+
+          createdTaskIds.push(createdTask.id);
+          existingTitles.add(item.title);
+        }
+      });
+
+      res.json({ created_task_ids: createdTaskIds, skipped_titles: skippedTitles });
+    } catch (err) {
+      const statusCode = resolveErrorStatus(err);
+      res.status(statusCode).json({ error: err.message });
+    }
+  }
+);
+
 router.get("/:id/loans", auth(), async (req, res) => {
   try {
     await assertCustomerAccess(req.user, req.params.id);
@@ -542,7 +819,14 @@ router.get("/:id/loans", auth(), async (req, res) => {
       ],
       order: [["updated_at", "DESC"]],
     });
-    res.json(loans);
+    const enriched = loans.map((loan) => {
+      loan.setDataValue(
+        "aging_days",
+        calculateAgingDays(loan.stage_started_at, loan.updated_at, loan.created_at)
+      );
+      return loan;
+    });
+    res.json(enriched);
   } catch (err) {
     const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });

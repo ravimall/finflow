@@ -12,6 +12,22 @@ const {
 } = require("../models");
 const auth = require("../middleware/auth");
 
+function calculateAgingDays(stageStartedAt, updatedAt, createdAt) {
+  const reference = stageStartedAt || updatedAt || createdAt;
+  if (!reference) {
+    return 0;
+  }
+  const timestamp = new Date(reference).getTime();
+  if (Number.isNaN(timestamp)) {
+    return 0;
+  }
+  const diffMs = Date.now() - timestamp;
+  if (Number.isNaN(diffMs) || diffMs <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+}
+
 async function userCanAccessCustomer(user, customerId) {
   const customer = await Customer.findByPk(customerId);
   if (!customer) {
@@ -198,12 +214,88 @@ router.get("/:id", auth(), async (req, res) => {
 
     await assertLoanAccess(req.user, loan);
 
+    const aging = calculateAgingDays(loan.stage_started_at, loan.updated_at, loan.created_at);
+    loan.setDataValue("aging_days", aging);
+
     res.json(loan);
   } catch (err) {
     const statusCode = err.statusCode || 500;
     res.status(statusCode).json({ error: err.message });
   }
 });
+
+router.patch(
+  "/:id/status",
+  auth(),
+  body("status").isString().isLength({ min: 1 }).withMessage("Status is required"),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const loan = await Loan.findByPk(req.params.id);
+      if (!loan) {
+        return res.status(404).json({ error: "Loan not found" });
+      }
+
+      await assertLoanAccess(req.user, loan);
+
+      const statusRecord = await ConfigStatus.findOne({
+        where: { type: "loan", name: req.body.status },
+      });
+
+      if (!statusRecord) {
+        return res.status(400).json({ error: "Invalid loan status" });
+      }
+
+      if (loan.status === statusRecord.name) {
+        const refreshed = await Loan.findByPk(loan.id, {
+          include: [
+            { model: Customer, as: "customer", attributes: ["id", "name", "customer_id"] },
+            { model: ConfigBank, as: "bank", attributes: ["id", "name"] },
+          ],
+        });
+        const aging = calculateAgingDays(
+          refreshed.stage_started_at,
+          refreshed.updated_at,
+          refreshed.created_at
+        );
+        refreshed.setDataValue("aging_days", aging);
+        return res.json({
+          message: "Loan status unchanged",
+          loan: refreshed,
+          aging_days: aging,
+        });
+      }
+
+      const now = new Date();
+      await loan.update({
+        status: statusRecord.name,
+        stage_started_at: now,
+        last_status_change_on: now,
+      });
+
+      const refreshed = await Loan.findByPk(loan.id, {
+        include: [
+          { model: Customer, as: "customer", attributes: ["id", "name", "customer_id"] },
+          { model: ConfigBank, as: "bank", attributes: ["id", "name"] },
+        ],
+      });
+      refreshed.setDataValue("aging_days", 0);
+
+      return res.json({
+        message: "Loan status updated",
+        loan: refreshed,
+        aging_days: 0,
+      });
+    } catch (err) {
+      const statusCode = err.statusCode || 500;
+      return res.status(statusCode).json({ error: err.message });
+    }
+  }
+);
 
 router.put("/:id", auth(), async (req, res) => {
   try {
@@ -212,6 +304,8 @@ router.put("/:id", auth(), async (req, res) => {
 
     await assertLoanAccess(req.user, loan);
 
+    const updatePayload = { ...req.body };
+
     if (req.body.status) {
       const statusRecord = await ConfigStatus.findOne({
         where: { type: "loan", name: req.body.status },
@@ -219,17 +313,35 @@ router.put("/:id", auth(), async (req, res) => {
       if (!statusRecord) {
         return res.status(400).json({ error: "Invalid loan status" });
       }
+      updatePayload.status = statusRecord.name;
+      if (loan.status !== statusRecord.name) {
+        const now = new Date();
+        updatePayload.stage_started_at = now;
+        updatePayload.last_status_change_on = now;
+      }
     }
 
     if (req.body.bank_id || req.body.bank_name) {
       const { bank_id: resolvedBankId, bank_name: resolvedBankName } =
         await resolveBank(req.body.bank_id, req.body.bank_name);
-      req.body.bank_id = resolvedBankId;
-      req.body.bank_name = resolvedBankName;
+      updatePayload.bank_id = resolvedBankId;
+      updatePayload.bank_name = resolvedBankName;
     }
 
-    await loan.update(req.body);
-    res.json({ message: "Loan updated", loan });
+    await loan.update(updatePayload);
+    const refreshed = await Loan.findByPk(loan.id, {
+      include: [
+        { model: Customer, as: "customer", attributes: ["id", "name", "customer_id"] },
+        { model: ConfigBank, as: "bank", attributes: ["id", "name"] },
+      ],
+    });
+    const aging = calculateAgingDays(
+      refreshed.stage_started_at,
+      refreshed.updated_at,
+      refreshed.created_at
+    );
+    refreshed.setDataValue("aging_days", aging);
+    res.json({ message: "Loan updated", loan: refreshed });
   } catch (err) {
     const statusCode = err.statusCode || 400;
     res.status(statusCode).json({ error: err.message });

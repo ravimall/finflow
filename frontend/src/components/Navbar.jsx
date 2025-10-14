@@ -9,12 +9,14 @@ const linksByRole = {
   user: [
     { to: "/dashboard", label: "Dashboard" },
     { to: "/customers", label: "Customers" },
+    { to: "/tasks", label: "My Tasks" },
     { to: "/loans", label: "Loans" },
     { to: "/documents", label: "Documents" },
   ],
   admin: [
     { to: "/dashboard", label: "Dashboard" },
     { to: "/customers", label: "Customers" },
+    { to: "/tasks", label: "My Tasks" },
     { to: "/loans", label: "Loans" },
     { to: "/documents", label: "Documents" },
     { to: "/admin", label: "Admin Config" },

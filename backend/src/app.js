@@ -87,6 +87,8 @@ const documentRoutes = require("./routes/documentRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const adminConfigRoutes = require("./routes/adminConfigRoutes");
 const configRoutes = require("./routes/configRoutes");
+const taskRoutes = require("./routes/taskRoutes");
+const taskTemplateRoutes = require("./routes/taskTemplateRoutes");
 
 app.use("/api/users", userRoutes);
 app.use("/api/customers", customerRoutes);
@@ -95,6 +97,8 @@ app.use("/api/documents", documentRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/admin/config", adminConfigRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/task-templates", taskTemplateRoutes);
 
 // -----------------------------
 // ? Root route
