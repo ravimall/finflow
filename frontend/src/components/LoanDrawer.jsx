@@ -169,6 +169,7 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
     : createdAtLabel
     ? `Created on ${createdAtLabel}`
     : "";
+  const agingDays = typeof loan?.aging_days === "number" ? loan.aging_days : null;
 
   return (
     <AnimatePresence>
@@ -214,6 +215,11 @@ export default function LoanDrawer({ loanId, open, onClose, onSaved }) {
               <p className="text-sm text-gray-500">Loading loan details…</p>
             ) : loan ? (
               <div className="space-y-4">
+                {agingDays !== null && (
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
+                    Aging: {agingDays} day{agingDays === 1 ? "" : "s"} in {loan.status}
+                  </div>
+                )}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-1 text-sm">
                     <label className="font-medium text-gray-600" htmlFor="status">

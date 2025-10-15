@@ -10,6 +10,7 @@ import Navbar from "./components/Navbar";
 import Admin from "./pages/Admin";
 import Reports from "./pages/Reports";
 import AuditLogs from "./pages/AuditLogs";
+import MyTasks from "./pages/MyTasks";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AuthCallback from "./pages/AuthCallback";
 
@@ -69,6 +70,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Documents />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <ProtectedRoute>
+                <MyTasks />
               </ProtectedRoute>
             }
           />

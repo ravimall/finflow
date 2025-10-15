@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { FiBell, FiCheckCircle, FiEdit3, FiPlus } from "react-icons/fi";
 import LoanForm from "../components/LoanForm";
 import LoanDrawer from "../components/LoanDrawer";
 import { AuthContext } from "../context/AuthContext";
@@ -23,6 +24,13 @@ function formatNumber(value) {
   return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(number);
 }
 
+function toInputDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 export default function CustomerDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -42,6 +50,27 @@ export default function CustomerDetail() {
   const [noteInput, setNoteInput] = useState("");
   const [noteError, setNoteError] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [taskLoading, setTaskLoading] = useState(false);
+  const [taskError, setTaskError] = useState("");
+  const [taskSaving, setTaskSaving] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState(null);
+  const [taskForm, setTaskForm] = useState({
+    title: "",
+    due_on: "",
+    remind_on: "",
+    notes: "",
+  });
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateSelection, setTemplateSelection] = useState({
+    templateId: "",
+    assigneeMode: "default",
+  });
+  const [templateError, setTemplateError] = useState("");
+  const [templateMessage, setTemplateMessage] = useState("");
   const [loans, setLoans] = useState([]);
   const [loanDrawerId, setLoanDrawerId] = useState(null);
   const [showLoanForm, setShowLoanForm] = useState(false);
@@ -87,6 +116,36 @@ export default function CustomerDetail() {
       setNotes([]);
     }
   }, [id]);
+
+  const refreshTasks = useCallback(async () => {
+    setTaskLoading(true);
+    setTaskError("");
+    try {
+      const response = await api.get(`/api/customers/${id}/tasks`);
+      setTasks(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to load tasks";
+      setTaskError(message);
+      setTasks([]);
+    } finally {
+      setTaskLoading(false);
+    }
+  }, [id]);
+
+  const fetchTemplates = useCallback(async () => {
+    setTemplateLoading(true);
+    setTemplateError("");
+    try {
+      const response = await api.get("/api/task-templates", { params: { is_active: true } });
+      setTemplates(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to load templates";
+      setTemplateError(message);
+      setTemplates([]);
+    } finally {
+      setTemplateLoading(false);
+    }
+  }, []);
 
   const refreshAgents = useCallback(async () => {
     if (!isAdmin) return;
@@ -134,14 +193,20 @@ export default function CustomerDetail() {
       setAgentSelection(
         customerRes.data?.primaryAgent?.id ? String(customerRes.data.primaryAgent.id) : ""
       );
-      await Promise.all([fetchDropboxLink(), refreshNotes(), refreshLoans(), refreshAgents()]);
+      await Promise.all([
+        fetchDropboxLink(),
+        refreshNotes(),
+        refreshTasks(),
+        refreshLoans(),
+        refreshAgents(),
+      ]);
     } catch (err) {
       const message = err.response?.data?.error || err.message || "Unable to load customer";
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, [fetchDropboxLink, id, refreshAgents, refreshLoans, refreshNotes]);
+  }, [fetchDropboxLink, id, refreshAgents, refreshLoans, refreshNotes, refreshTasks]);
 
   useEffect(() => {
     loadCustomer();
@@ -154,6 +219,14 @@ export default function CustomerDetail() {
       setDropboxActionLoading(false);
     }
   }, [dropboxProvisioningStatus]);
+
+  useEffect(() => {
+    if (templateModalOpen) {
+      fetchTemplates();
+      setTemplateMessage("");
+      setTemplateError("");
+    }
+  }, [fetchTemplates, templateModalOpen]);
 
   const handleAgentChange = async (event) => {
     if (!customer) return;
@@ -209,6 +282,7 @@ export default function CustomerDetail() {
       id: loan.id,
       bank: loan.bank?.name || loan.bank_name || "—",
       status: loan.status || "—",
+      aging: typeof loan.aging_days === "number" ? loan.aging_days : 0,
       applied: formatNumber(loan.applied_amount),
       approved: formatNumber(loan.approved_amount),
       roi: loan.rate_of_interest === null || typeof loan.rate_of_interest === "undefined"
@@ -220,6 +294,134 @@ export default function CustomerDetail() {
 
   const openDocuments = () => {
     navigate(`/documents?customer_id=${id}`);
+  };
+
+  const resetTaskForm = useCallback(() => {
+    setTaskForm({ title: "", due_on: "", remind_on: "", notes: "" });
+    setEditingTaskId(null);
+    setTaskError("");
+  }, []);
+
+  const handleTaskChange = (event) => {
+    const { name, value } = event.target;
+    setTaskForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const submitTask = async (event) => {
+    event.preventDefault();
+    if (!taskForm.title.trim()) {
+      setTaskError("Title is required");
+      return;
+    }
+    setTaskSaving(true);
+    setTaskError("");
+    try {
+      if (editingTaskId) {
+        await api.patch(`/api/tasks/${editingTaskId}`, {
+          title: taskForm.title.trim(),
+          notes: taskForm.notes || "",
+          due_on: taskForm.due_on ? taskForm.due_on : null,
+          remind_on: taskForm.remind_on ? taskForm.remind_on : null,
+        });
+      } else {
+        const payload = {
+          title: taskForm.title.trim(),
+        };
+        if (taskForm.notes.trim()) {
+          payload.notes = taskForm.notes.trim();
+        }
+        if (taskForm.due_on) {
+          payload.due_on = taskForm.due_on;
+        }
+        if (taskForm.remind_on) {
+          payload.remind_on = taskForm.remind_on;
+        }
+        await api.post(`/api/customers/${id}/tasks`, payload);
+      }
+      resetTaskForm();
+      await refreshTasks();
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to save task";
+      setTaskError(message);
+    } finally {
+      setTaskSaving(false);
+    }
+  };
+
+  const handleEditTask = (task) => {
+    setEditingTaskId(task.id);
+    setTaskForm({
+      title: task.title || "",
+      due_on: toInputDate(task.due_on),
+      remind_on: toInputDate(task.remind_on),
+      notes: task.notes || "",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelTaskEditing = () => {
+    resetTaskForm();
+  };
+
+  const markTaskCompleted = async (taskId) => {
+    setCompletingTaskId(taskId);
+    setTaskError("");
+    try {
+      await api.patch(`/api/tasks/${taskId}`, { status: "completed" });
+      await refreshTasks();
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to complete task";
+      setTaskError(message);
+    } finally {
+      setCompletingTaskId(null);
+    }
+  };
+
+  const handleOpenTemplateModal = () => {
+    setTemplateModalOpen(true);
+    setTemplateSelection({ templateId: "", assigneeMode: "default" });
+  };
+
+  const handleCloseTemplateModal = () => {
+    setTemplateModalOpen(false);
+  };
+
+  const applyTemplate = async (event) => {
+    event.preventDefault();
+    if (!templateSelection.templateId) {
+      setTemplateError("Select a template to apply");
+      return;
+    }
+
+    setTemplateLoading(true);
+    setTemplateError("");
+    setTemplateMessage("");
+
+    try {
+      const payload = { template_id: templateSelection.templateId };
+      if (templateSelection.assigneeMode === "self" && user?.id) {
+        payload.assignee_id = user.id;
+      }
+      const response = await api.post(
+        `/api/customers/${id}/tasks/templates/apply`,
+        payload
+      );
+      const created = Array.isArray(response.data?.created_task_ids)
+        ? response.data.created_task_ids.length
+        : 0;
+      const skipped = Array.isArray(response.data?.skipped_titles)
+        ? response.data.skipped_titles.length
+        : 0;
+      setTemplateMessage(
+        `Created ${created} task${created === 1 ? "" : "s"}; skipped ${skipped}.`
+      );
+      await refreshTasks();
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to apply template";
+      setTemplateError(message);
+    } finally {
+      setTemplateLoading(false);
+    }
   };
 
   if (loading) {
@@ -410,6 +612,163 @@ export default function CustomerDetail() {
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
         <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
+            <h2 className="text-xl font-semibold text-gray-900">Tasks</h2>
+            <p className="text-sm text-gray-500">Track follow-ups and reminders.</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleOpenTemplateModal}
+              className="inline-flex h-10 items-center gap-2 rounded-full border border-blue-600 px-4 text-sm font-semibold text-blue-600 transition hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <FiPlus aria-hidden="true" />
+              Apply Template
+            </button>
+          </div>
+        </header>
+
+        <form onSubmit={submitTask} className="space-y-3 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="task-title" className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                Title
+              </label>
+              <input
+                id="task-title"
+                name="title"
+                value={taskForm.title}
+                onChange={handleTaskChange}
+                placeholder="Collect income proof"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Due on</span>
+                <input
+                  type="date"
+                  name="due_on"
+                  value={taskForm.due_on}
+                  onChange={handleTaskChange}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Remind on</span>
+                <input
+                  type="date"
+                  name="remind_on"
+                  value={taskForm.remind_on}
+                  onChange={handleTaskChange}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+            </div>
+          </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</span>
+            <textarea
+              name="notes"
+              rows={3}
+              value={taskForm.notes}
+              onChange={handleTaskChange}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Optional context for the assignee"
+            />
+          </label>
+          {taskError && <p className="text-xs font-medium text-red-600">{taskError}</p>}
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={taskSaving}
+              className="inline-flex h-10 items-center justify-center rounded-full bg-green-600 px-4 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {taskSaving ? "Saving…" : editingTaskId ? "Update Task" : "Add Task"}
+            </button>
+            {editingTaskId && (
+              <button
+                type="button"
+                onClick={cancelTaskEditing}
+                className="inline-flex h-10 items-center justify-center rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
+              >
+                Cancel edit
+              </button>
+            )}
+          </div>
+        </form>
+
+        <div className="space-y-3">
+          {taskLoading ? (
+            <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+              Loading tasks…
+            </p>
+          ) : tasks.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+              No tasks yet. Create your first action above.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {tasks.map((task) => (
+                <li key={task.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-900">{task.title}</p>
+                        {task.status !== "pending" && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                            {task.status}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                        <span>Due {formatDate(task.due_on)}</span>
+                        {task.remind_on && (
+                          <span className="inline-flex items-center gap-1 text-blue-600">
+                            <FiBell aria-hidden="true" />
+                            Remind {formatDate(task.remind_on)}
+                          </span>
+                        )}
+                        {task.assignee && (
+                          <span className="inline-flex items-center gap-1 text-gray-500">
+                            Assigned to {task.assignee.name || task.assignee.email}
+                          </span>
+                        )}
+                      </div>
+                      {task.notes ? (
+                        <p className="text-xs text-gray-600 whitespace-pre-line">{task.notes}</p>
+                      ) : null}
+                    </div>
+                    {task.status === "pending" && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEditTask(task)}
+                          className="inline-flex h-9 items-center justify-center rounded-full border border-gray-300 px-3 text-xs font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
+                        >
+                          <FiEdit3 aria-hidden="true" /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => markTaskCompleted(task.id)}
+                          disabled={completingTaskId === task.id}
+                          className="inline-flex h-9 items-center justify-center rounded-full bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-70"
+                        >
+                          <FiCheckCircle aria-hidden="true" /> Done
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
             <h2 className="text-xl font-semibold text-gray-900">Loans</h2>
             <p className="text-sm text-gray-500">
               Manage every loan linked to this customer.
@@ -468,7 +827,12 @@ export default function CustomerDetail() {
                         onClick={() => setLoanDrawerId(loan.id)}
                       >
                         <td className="px-4 py-3">{loan.bank}</td>
-                        <td className="px-4 py-3">{loan.status}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-medium text-gray-800">{loan.status}</span>
+                            <span className="text-xs text-gray-500">Aging: {loan.aging} days in {loan.status}</span>
+                          </div>
+                        </td>
                         <td className="px-4 py-3">{loan.applied}</td>
                         <td className="px-4 py-3">{loan.approved}</td>
                         <td className="px-4 py-3">{loan.roi}</td>
@@ -496,6 +860,7 @@ export default function CustomerDetail() {
                       {loan.status}
                     </span>
                   </header>
+                  <p className="mt-2 text-xs font-medium text-gray-500">Aging: {loan.aging} days in {loan.status}</p>
                   <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
                     <div>
                       <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Applied</dt>
@@ -516,6 +881,85 @@ export default function CustomerDetail() {
           </>
         )}
       </section>
+
+      {templateModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <header className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Apply task template</h3>
+                <p className="text-sm text-gray-500">Create a checklist in one click.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseTemplateModal}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-500 transition hover:border-gray-300 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-300"
+              >
+                ×
+              </button>
+            </header>
+            <form onSubmit={applyTemplate} className="space-y-4">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Template</span>
+                <select
+                  value={templateSelection.templateId}
+                  onChange={(event) =>
+                    setTemplateSelection((prev) => ({
+                      ...prev,
+                      templateId: event.target.value,
+                    }))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                >
+                  <option value="" disabled>
+                    {templateLoading ? "Loading templates…" : "Select a template"}
+                  </option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Assignee</span>
+                <select
+                  value={templateSelection.assigneeMode}
+                  onChange={(event) =>
+                    setTemplateSelection((prev) => ({
+                      ...prev,
+                      assigneeMode: event.target.value,
+                    }))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="default">Default (customer owner)</option>
+                  <option value="self">Assign to me</option>
+                </select>
+              </label>
+              {templateError && <p className="text-xs font-medium text-red-600">{templateError}</p>}
+              {templateMessage && <p className="text-xs font-medium text-emerald-600">{templateMessage}</p>}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleCloseTemplateModal}
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={templateLoading}
+                  className="inline-flex h-10 items-center justify-center rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {templateLoading ? "Applying…" : "Apply"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       <LoanDrawer
         loanId={loanDrawerId}

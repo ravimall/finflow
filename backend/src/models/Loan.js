@@ -12,6 +12,8 @@ const Loan = sequelize.define(
     approved_amount: { type: DataTypes.DECIMAL(15, 2) },
     rate_of_interest: { type: DataTypes.DECIMAL(5, 2) },
     status: { type: DataTypes.STRING, defaultValue: "Login" },
+    stage_started_at: { type: DataTypes.DATE },
+    last_status_change_on: { type: DataTypes.DATE },
     notes: { type: DataTypes.TEXT },
   },
   {
