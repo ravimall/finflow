@@ -370,9 +370,11 @@ router.post(
   }
 );
 
-// Get customers - agents see only assigned customers, admins see all
+// Get customers - admins see all, agents see their assignments/primary records
 router.get("/", auth(), async (req, res) => {
   try {
+    const isAdmin = req.user.role === "admin";
+
     const query = {
       distinct: true,
       include: [
@@ -381,14 +383,22 @@ router.get("/", auth(), async (req, res) => {
       order: [["created_at", "DESC"]],
     };
 
-    if (req.user.role !== "admin") {
+    if (!isAdmin) {
       query.include.push({
         model: CustomerAgent,
         as: "assignments",
         attributes: [],
         where: { agent_id: req.user.id },
-        required: true,
+        required: false,
       });
+
+      query.where = {
+        [Op.or]: [
+          { primary_agent_id: req.user.id },
+          { created_by: req.user.id },
+          { "$assignments.agent_id$": req.user.id },
+        ],
+      };
     }
 
     const customers = await Customer.findAll(query);
