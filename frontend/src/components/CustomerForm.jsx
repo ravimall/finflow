@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
+import { AuthContext } from "../context/AuthContext";
 import { api } from "../lib/api.js";
 
 const INITIAL_FORM = {
@@ -7,7 +8,8 @@ const INITIAL_FORM = {
   email: "",
   address: "",
   status: "",
-  agent_id: "",
+  primary_agent_id: "",
+  flat_no: "",
 };
 
 export default function CustomerForm({ onSuccess }) {
@@ -16,18 +18,28 @@ export default function CustomerForm({ onSuccess }) {
   const [statuses, setStatuses] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const { user } = useContext(AuthContext);
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
-    api
-      .get("/api/users", { params: { role: "agent" } })
-      .then((res) => setAgents(res.data))
-      .catch(() => setAgents([]));
-
     api
       .get("/api/config/statuses", { params: { type: "customer" } })
       .then((res) => setStatuses(res.data))
       .catch(() => setStatuses([]));
   }, []);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      setAgents([]);
+      setForm((prev) => ({ ...prev, primary_agent_id: "" }));
+      return;
+    }
+
+    api
+      .get("/api/users", { params: { role: "agent" } })
+      .then((res) => setAgents(res.data))
+      .catch(() => setAgents([]));
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!form.status && statuses.length > 0) {
@@ -51,6 +63,7 @@ export default function CustomerForm({ onSuccess }) {
     setError("");
 
     try {
+      const trimmedFlatNo = typeof form.flat_no === "string" ? form.flat_no.trim() : "";
       const payload = {
         name: form.name,
         phone: form.phone || undefined,
@@ -59,8 +72,12 @@ export default function CustomerForm({ onSuccess }) {
         status: form.status || undefined,
       };
 
-      if (form.agent_id) {
-        payload.agent_id = Number(form.agent_id);
+      if (trimmedFlatNo) {
+        payload.flat_no = trimmedFlatNo;
+      }
+
+      if (isAdmin && form.primary_agent_id) {
+        payload.primary_agent_id = Number(form.primary_agent_id);
       }
 
       await api.post("/api/customers", payload);
@@ -116,6 +133,14 @@ export default function CustomerForm({ onSuccess }) {
           className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
           type="email"
         />
+        <input
+          name="flat_no"
+          placeholder="Flat No."
+          value={form.flat_no}
+          onChange={handle}
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          maxLength={50}
+        />
         <div className="sm:col-span-2 lg:col-span-1">
           <textarea
             name="address"
@@ -127,25 +152,27 @@ export default function CustomerForm({ onSuccess }) {
           />
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:items-center">
-        <label className="text-xs font-medium uppercase tracking-wide text-gray-500 sm:text-sm" htmlFor="agent">
-          Assign agent
-        </label>
-        <select
-          id="agent"
-          name="agent_id"
-          value={form.agent_id}
-          onChange={handle}
-          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Auto-assign (Admin)</option>
-          {agentOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      {isAdmin && (
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:items-center">
+          <label className="text-xs font-medium uppercase tracking-wide text-gray-500 sm:text-sm" htmlFor="agent">
+            Assigned agent
+          </label>
+          <select
+            id="agent"
+            name="primary_agent_id"
+            value={form.primary_agent_id}
+            onChange={handle}
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Unassigned</option>
+            {agentOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <button
           type="submit"
