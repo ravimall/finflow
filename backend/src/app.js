@@ -53,6 +53,8 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
+app.locals.logger = logger;
+
 // -----------------------------
 // ? Middleware
 // -----------------------------
