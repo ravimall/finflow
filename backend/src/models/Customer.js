@@ -13,6 +13,19 @@ const Customer = sequelize.define(
     status: { type: DataTypes.STRING, defaultValue: "Booking" },
     created_by: { type: DataTypes.INTEGER, allowNull: true },
     primary_agent_id: { type: DataTypes.INTEGER, allowNull: true },
+    flat_no: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      set(value) {
+        if (typeof value === "undefined" || value === null) {
+          this.setDataValue("flat_no", null);
+          return;
+        }
+
+        const trimmed = typeof value === "string" ? value.trim() : String(value).trim();
+        this.setDataValue("flat_no", trimmed === "" ? null : trimmed);
+      },
+    },
     dropboxFolderId: {
       type: DataTypes.STRING,
       allowNull: true,

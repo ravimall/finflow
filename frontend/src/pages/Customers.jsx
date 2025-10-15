@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CustomerForm from "../components/CustomerForm";
+import { AuthContext } from "../context/AuthContext";
 import { api } from "../lib/api.js";
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useContext(AuthContext);
+  const isAdmin = user?.role === "admin";
 
   const fetchCustomers = useCallback(() => {
     setLoading(true);
@@ -27,6 +30,7 @@ export default function Customers() {
       customerCode: customer.customer_id,
       status: customer.status,
       primaryAgent: customer.primaryAgent?.name || customer.primaryAgent?.email || "Unassigned",
+      flatNo: customer.flat_no || "—",
     }));
   }, [customers]);
 
@@ -65,7 +69,8 @@ export default function Customers() {
                       <th className="px-4 py-3">Customer ID</th>
                       <th className="px-4 py-3">Name</th>
                       <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Primary agent</th>
+                      <th className="px-4 py-3">Flat No.</th>
+                      {isAdmin && <th className="px-4 py-3">Primary agent</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -82,7 +87,10 @@ export default function Customers() {
                             {customer.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{customer.primaryAgent}</td>
+                        <td className="px-4 py-3 text-sm text-gray-700">{customer.flatNo}</td>
+                        {isAdmin && (
+                          <td className="px-4 py-3 text-sm text-gray-700">{customer.primaryAgent}</td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -93,20 +101,26 @@ export default function Customers() {
             <div className="space-y-3 md:hidden">
               {customerRows.map((customer) => (
                 <article key={customer.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-900">{customer.name}</h3>
-                      <p className="font-mono text-xs uppercase tracking-wide text-gray-500">{customer.customerCode}</p>
-                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-semibold text-gray-900">{customer.name}</h3>
+                        <p className="font-mono text-xs uppercase tracking-wide text-gray-500">{customer.customerCode}</p>
+                      </div>
                     <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
                       {customer.status}
                     </span>
                   </div>
                   <dl className="mt-3 space-y-1 text-sm text-gray-600">
                     <div className="flex justify-between">
-                      <dt className="font-medium text-gray-500">Primary agent</dt>
-                      <dd className="text-right text-gray-700">{customer.primaryAgent}</dd>
+                      <dt className="font-medium text-gray-500">Flat No.</dt>
+                      <dd className="text-right text-gray-700">{customer.flatNo}</dd>
                     </div>
+                    {isAdmin && (
+                      <div className="flex justify-between">
+                        <dt className="font-medium text-gray-500">Primary agent</dt>
+                        <dd className="text-right text-gray-700">{customer.primaryAgent}</dd>
+                      </div>
+                    )}
                   </dl>
                   <Link
                     to={`/customers/${customer.id}`}
