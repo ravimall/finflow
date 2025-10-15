@@ -1,0 +1,40 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: "*/12 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  TZ: Asia/Kolkata
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide IST window
+        id: gate
+        run: |
+          HOUR_IST=$(date +'%H')
+          if [ "$HOUR_IST" -ge 7 ] && [ "$HOUR_IST" -le 22 ]; then
+            echo "run_ping=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_ping=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get health URL from env files
+        if: steps.gate.outputs.run_ping == 'true'
+        id: url
+        run: echo "url=$(npm run -s print:health:url)" >> "$GITHUB_OUTPUT"
+
+      - name: Ping
+        if: steps.gate.outputs.run_ping == 'true'
+        run: |
+          echo "Pinging: ${{ steps.url.outputs.url }}"
+          RESP=$(curl -fsS --max-time 10 "${{ steps.url.outputs.url }}" || true)
+          echo "Response: ${RESP:-<empty>}"
