@@ -1,0 +1,2 @@
+ALTER TABLE customers
+ADD COLUMN IF NOT EXISTS flat_no VARCHAR(50);

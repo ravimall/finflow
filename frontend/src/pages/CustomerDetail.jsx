@@ -456,8 +456,6 @@ export default function CustomerDetail() {
       ? "border-red-200 bg-red-50 text-red-800"
       : "border-amber-200 bg-amber-50 text-amber-800";
   const shouldShowRetryButton = dropboxStatus !== "ok";
-  const agentName = customer.primaryAgent?.name || customer.primaryAgent?.email || "Admin";
-
   return (
     <div className="space-y-8 pb-6">
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
@@ -525,8 +523,12 @@ export default function CustomerDetail() {
             <p className="text-base text-gray-900">{customer.status}</p>
           </div>
           <div className="space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</p>
-            {isAdmin ? (
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</p>
+            <p className="text-base text-gray-900">{customer.flat_no || "—"}</p>
+          </div>
+          {isAdmin && (
+            <div className="space-y-1 text-sm sm:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</p>
               <div className="flex flex-col gap-1">
                 <select
                   value={agentSelection}
@@ -543,10 +545,8 @@ export default function CustomerDetail() {
                 {agentError && <span className="text-xs text-red-600">{agentError}</span>}
                 {agentSuccess && <span className="text-xs text-green-600">{agentSuccess}</span>}
               </div>
-            ) : (
-              <p className="text-base text-gray-900">{agentName}</p>
-            )}
-          </div>
+            </div>
+          )}
           <div className="space-y-1 text-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
             <p>{customer.email || "—"}</p>

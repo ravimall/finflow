@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS customers (
     phone VARCHAR(20),
     email VARCHAR(150),
     address TEXT,
+    flat_no VARCHAR(50),
     status VARCHAR(50) DEFAULT 'Booking',
     created_by INT REFERENCES users(id) ON DELETE SET NULL,
     primary_agent_id INT REFERENCES users(id) ON DELETE SET NULL,

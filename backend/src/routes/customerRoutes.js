@@ -17,6 +17,7 @@ const {
   TaskTemplateItem,
 } = require("../models");
 const auth = require("../middleware/auth");
+const canEditCustomer = require("../middleware/canEditCustomer");
 const { listFolder, combineWithinFolder, logDropboxAction } = require("../utils/dropbox");
 const {
   shouldUseFolderId,
@@ -191,6 +192,43 @@ async function ensureAgentAssignment(customerId, agentId, transaction) {
   });
 }
 
+function normalizeFlatNumber(rawValue) {
+  if (typeof rawValue === "undefined" || rawValue === null) {
+    return null;
+  }
+
+  if (typeof rawValue === "string") {
+    const trimmed = rawValue.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+
+  const stringified = String(rawValue).trim();
+  return stringified === "" ? null : stringified;
+}
+
+async function normalizePrimaryAgentId(rawValue, transaction) {
+  if (typeof rawValue === "undefined" || rawValue === null || rawValue === "") {
+    return null;
+  }
+
+  const parsed = Number(rawValue);
+  if (Number.isNaN(parsed)) {
+    const error = new Error("Invalid primary agent");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const agent = await User.findByPk(parsed, { transaction });
+
+  if (!agent || agent.role !== "agent") {
+    const error = new Error("Agent not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return agent.id;
+}
+
 async function resolveTaskAssignee(customer, requestedAssigneeId, defaultRole, transaction) {
   if (requestedAssigneeId) {
     const parsed = Number(requestedAssigneeId);
@@ -251,25 +289,36 @@ router.post(
   auth(),
   body("name").notEmpty(),
   body("email").optional().isEmail(),
-  body("agent_id").optional().isInt({ min: 1 }),
+  body("primary_agent_id").optional().isInt({ min: 1 }),
   body("status").optional().isString(),
+  body("flat_no").optional().isLength({ max: 50 }),
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, phone, email, address, agent_id, status } = req.body;
+    const { name, phone, email, address, status } = req.body;
+    const rawFlatNo = req.body?.flat_no;
 
     try {
       let createdCustomerId = null;
 
       await sequelize.transaction(async (transaction) => {
-        const assignedAgent = await resolveAssignedAgent(
-          agent_id,
-          req.user.id,
-          transaction
-        );
+        const isAdmin = req.user.role === "admin";
+        let primaryAgentId = null;
+
+        if (isAdmin) {
+          if (Object.prototype.hasOwnProperty.call(req.body || {}, "primary_agent_id")) {
+            primaryAgentId = await normalizePrimaryAgentId(
+              req.body.primary_agent_id,
+              transaction
+            );
+          }
+        } else {
+          primaryAgentId = req.user.id;
+        }
+
         const customerStatus = await resolveCustomerStatus(status, transaction);
         const customerCode = await generateCustomerCode(transaction);
 
@@ -282,12 +331,15 @@ router.post(
             address,
             status: customerStatus,
             created_by: req.user.id,
-            primary_agent_id: assignedAgent.id,
+            primary_agent_id: primaryAgentId,
+            flat_no: normalizeFlatNumber(rawFlatNo),
           },
           { transaction }
         );
 
-        await ensureAgentAssignment(createdCustomer.id, assignedAgent.id, transaction);
+        if (primaryAgentId) {
+          await ensureAgentAssignment(createdCustomer.id, primaryAgentId, transaction);
+        }
         createdCustomerId = createdCustomer.id;
       });
 
@@ -318,9 +370,11 @@ router.post(
   }
 );
 
-// Get customers - agents see only assigned customers, admins see all
+// Get customers - admins see all, agents see their assignments/primary records
 router.get("/", auth(), async (req, res) => {
   try {
+    const isAdmin = req.user.role === "admin";
+
     const query = {
       distinct: true,
       include: [
@@ -329,14 +383,22 @@ router.get("/", auth(), async (req, res) => {
       order: [["created_at", "DESC"]],
     };
 
-    if (req.user.role !== "admin") {
+    if (!isAdmin) {
       query.include.push({
         model: CustomerAgent,
         as: "assignments",
         attributes: [],
         where: { agent_id: req.user.id },
-        required: true,
+        required: false,
       });
+
+      query.where = {
+        [Op.or]: [
+          { primary_agent_id: req.user.id },
+          { created_by: req.user.id },
+          { "$assignments.agent_id$": req.user.id },
+        ],
+      };
     }
 
     const customers = await Customer.findAll(query);
@@ -382,25 +444,23 @@ router.get("/:id", auth(), async (req, res) => {
   }
 });
 
-router.put("/:id", auth(), async (req, res) => {
+async function handleCustomerUpdate(req, res) {
   try {
-    await assertCustomerAccess(req.user, req.params.id);
-    const customer = await Customer.findByPk(req.params.id);
-    if (!customer) return res.status(404).json({ error: "Customer not found" });
+    const customer = req.customer;
+    const isAdmin = req.user.role === "admin";
+    const allowedFields = new Set(["name", "phone", "email", "address", "status", "flat_no"]);
 
-    if (req.body.status) {
-      const statusRecord = await ConfigStatus.findOne({
-        where: { type: "customer", name: req.body.status },
-      });
-      if (!statusRecord) {
-        return res.status(400).json({ error: "Invalid customer status" });
-      }
+    if (isAdmin) {
+      allowedFields.add("primary_agent_id");
     }
 
-    const updatePayload = { ...req.body };
-    delete updatePayload.dropboxFolderPath;
-    delete updatePayload.dropbox_folder_path;
-    delete updatePayload.folderPath;
+    const updatePayload = {};
+
+    Object.entries(req.body || {}).forEach(([key, value]) => {
+      if (allowedFields.has(key)) {
+        updatePayload[key] = value;
+      }
+    });
 
     if (
       Object.prototype.hasOwnProperty.call(req.body || {}, "dropboxFolderPath") ||
@@ -426,13 +486,54 @@ router.put("/:id", auth(), async (req, res) => {
       updatePayload.dropboxFolderPath = normalizedPath;
     }
 
+    if (Object.prototype.hasOwnProperty.call(updatePayload, "status")) {
+      const statusRecord = await ConfigStatus.findOne({
+        where: { type: "customer", name: updatePayload.status },
+      });
+      if (!statusRecord) {
+        return res.status(400).json({ error: "Invalid customer status" });
+      }
+      updatePayload.status = statusRecord.name;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updatePayload, "flat_no")) {
+      updatePayload.flat_no = normalizeFlatNumber(updatePayload.flat_no);
+    }
+
+    let nextPrimaryAgentId = customer.primary_agent_id;
+
+    if (Object.prototype.hasOwnProperty.call(updatePayload, "primary_agent_id")) {
+      if (!isAdmin) {
+        delete updatePayload.primary_agent_id;
+      } else {
+        nextPrimaryAgentId = await normalizePrimaryAgentId(updatePayload.primary_agent_id);
+        updatePayload.primary_agent_id = nextPrimaryAgentId;
+      }
+    }
+
+    if (Object.keys(updatePayload).length === 0) {
+      return res.json({ message: "Customer updated successfully", customer });
+    }
+
     await customer.update(updatePayload);
+
+    if (
+      isAdmin &&
+      Object.prototype.hasOwnProperty.call(updatePayload, "primary_agent_id") &&
+      nextPrimaryAgentId
+    ) {
+      await ensureAgentAssignment(customer.id, nextPrimaryAgentId);
+    }
+
     res.json({ message: "Customer updated successfully", customer });
   } catch (err) {
     const statusCode = resolveErrorStatus(err);
     res.status(statusCode).json({ error: err.message });
   }
-});
+}
+
+router.put("/:id", auth(), canEditCustomer, handleCustomerUpdate);
+router.patch("/:id", auth(), canEditCustomer, handleCustomerUpdate);
 
 router.delete("/:id", auth("admin"), async (req, res) => {
   try {
