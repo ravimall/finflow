@@ -53,6 +53,8 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()]
 });
 
+app.locals.logger = logger;
+
 // -----------------------------
 // ? Middleware
 // -----------------------------
@@ -80,6 +82,7 @@ app.use(passport.session());
 // -----------------------------
 // ? Routes
 // -----------------------------
+const healthRouter = require("./routes/health");
 const userRoutes = require("./routes/userRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const loanRoutes = require("./routes/loanRoutes");
@@ -88,6 +91,7 @@ const reportRoutes = require("./routes/reportRoutes");
 const adminConfigRoutes = require("./routes/adminConfigRoutes");
 const configRoutes = require("./routes/configRoutes");
 
+app.use(healthRouter);
 app.use("/api/users", userRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/loans", loanRoutes);
