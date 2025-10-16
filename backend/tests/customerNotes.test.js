@@ -167,3 +167,31 @@ test("returns 500 when fetching notes fails", async () => {
   assert.deepEqual(res.body, { code: "INTERNAL", message: "Unable to fetch notes" });
   assert.equal(logged, true);
 });
+
+test("returns an empty array when the notes table is missing", async () => {
+  let warned = false;
+  const handler = createHandler({
+    CustomerModel: { findByPk: async () => ({ id: 88 }) },
+    CustomerNoteModel: {
+      findAll: async () => {
+        const error = new Error("relation does not exist");
+        error.original = { code: "42P01" };
+        throw error;
+      },
+    },
+    logger: {
+      warn: () => {
+        warned = true;
+      },
+    },
+  });
+
+  const req = { params: { id: "88" }, user: { id: 1 }, headers: {} };
+  const res = createResponse();
+
+  await handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, []);
+  assert.equal(warned, true);
+});

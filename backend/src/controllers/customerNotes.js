@@ -48,6 +48,16 @@ function createCustomerNotesHandler({
           .json({ code: "FORBIDDEN", message: "You do not have access to this customer" });
       }
 
+      if (err?.original?.code === "42P01" || err?.parent?.code === "42P01") {
+        if (typeof logger?.warn === "function") {
+          logger.warn(
+            `[CustomerNotes] customerId=${customerId} relation missing; returning empty list until migration runs`
+          );
+        }
+
+        return res.json([]);
+      }
+
       const requestId = req.id || req.requestId || req.headers?.["x-request-id"] || "unknown";
       const userId = req.user?.id ?? "unknown";
       if (typeof logger?.error === "function") {
