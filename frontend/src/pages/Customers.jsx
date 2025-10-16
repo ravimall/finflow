@@ -1,7 +1,10 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { FiTrash2 } from "react-icons/fi";
 import CustomerForm from "../components/CustomerForm";
+import CustomerDeleteModal from "../components/CustomerDeleteModal.jsx";
 import { AuthContext } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext.jsx";
 import { api } from "../lib/api.js";
 
 export default function Customers() {
@@ -9,6 +12,9 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === "admin";
+  const { showToast } = useToast();
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   const fetchCustomers = useCallback(() => {
     setLoading(true);
@@ -22,6 +28,37 @@ export default function Customers() {
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
+
+  const handleCloseDeleteModal = useCallback(() => {
+    setIsDeleteModalOpen(false);
+    setDeleteTarget(null);
+  }, []);
+
+  const handleCustomerDeleted = useCallback(
+    ({ customerId, dropboxDeleted }) => {
+      setCustomers((prev) => prev.filter((customer) => customer.id !== customerId));
+      showToast(
+        "success",
+        dropboxDeleted
+          ? "Customer and Dropbox folder deleted."
+          : "Customer and related data deleted."
+      );
+      handleCloseDeleteModal();
+    },
+    [handleCloseDeleteModal, showToast]
+  );
+
+  const openDeleteModal = useCallback(
+    (customerId) => {
+      const target = customers.find((customer) => customer.id === customerId);
+      if (!target) {
+        return;
+      }
+      setDeleteTarget(target);
+      setIsDeleteModalOpen(true);
+    },
+    [customers]
+  );
 
   const customerRows = useMemo(() => {
     return customers.map((customer) => ({
@@ -71,6 +108,7 @@ export default function Customers() {
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Flat No.</th>
                       {isAdmin && <th className="px-4 py-3">Primary agent</th>}
+                      {isAdmin && <th className="px-4 py-3 text-right">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -91,6 +129,19 @@ export default function Customers() {
                         {isAdmin && (
                           <td className="px-4 py-3 text-sm text-gray-700">{customer.primaryAgent}</td>
                         )}
+                        {isAdmin && (
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openDeleteModal(customer.id)}
+                              title="Delete customer"
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 text-red-600 transition hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                            >
+                              <FiTrash2 className="h-4 w-4" aria-hidden="true" />
+                              <span className="sr-only">Delete customer</span>
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -101,14 +152,27 @@ export default function Customers() {
             <div className="space-y-3 md:hidden">
               {customerRows.map((customer) => (
                 <article key={customer.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <h3 className="text-base font-semibold text-gray-900">{customer.name}</h3>
-                        <p className="font-mono text-xs uppercase tracking-wide text-gray-500">{customer.customerCode}</p>
-                      </div>
-                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                      {customer.status}
-                    </span>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900">{customer.name}</h3>
+                      <p className="font-mono text-xs uppercase tracking-wide text-gray-500">{customer.customerCode}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                        {customer.status}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => openDeleteModal(customer.id)}
+                          title="Delete customer"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-red-200 text-red-600 transition hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                        >
+                          <FiTrash2 className="h-4 w-4" aria-hidden="true" />
+                          <span className="sr-only">Delete customer</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <dl className="mt-3 space-y-1 text-sm text-gray-600">
                     <div className="flex justify-between">
@@ -134,6 +198,14 @@ export default function Customers() {
           </>
         )}
       </section>
+      {isAdmin && (
+        <CustomerDeleteModal
+          open={isDeleteModalOpen}
+          onClose={handleCloseDeleteModal}
+          customer={deleteTarget}
+          onDeleted={handleCustomerDeleted}
+        />
+      )}
     </div>
   );
 }

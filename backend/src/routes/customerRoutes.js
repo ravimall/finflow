@@ -25,6 +25,10 @@ const {
   provisionDropboxForCustomer,
 } = require("../services/dropboxProvisioning");
 const { logAudit } = require("../utils/audit");
+const {
+  getCustomerDeletionPreview,
+  deleteCustomer,
+} = require("../services/customerDeletion");
 
 function handleDropboxError(res, err, fallbackMessage) {
   const rawMessage =
@@ -550,14 +554,30 @@ async function handleCustomerUpdate(req, res) {
 router.put("/:id", auth(), canEditCustomer, customerUpdateValidators, handleCustomerUpdate);
 router.patch("/:id", auth(), canEditCustomer, customerUpdateValidators, handleCustomerUpdate);
 
+router.get("/:id/deletion-preview", auth("admin"), async (req, res) => {
+  try {
+    const preview = await getCustomerDeletionPreview(req.params.id);
+    if (!preview) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+    res.json(preview);
+  } catch (err) {
+    const statusCode = resolveErrorStatus(err);
+    res.status(statusCode).json({ error: err.message || "Unable to load deletion preview" });
+  }
+});
+
 router.delete("/:id", auth("admin"), async (req, res) => {
   try {
-    const customer = await Customer.findByPk(req.params.id);
-    if (!customer) return res.status(404).json({ error: "Customer not found" });
-    await customer.destroy();
-    res.json({ message: "Customer deleted successfully" });
+    const { deleteDropboxFolder = false } = req.body || {};
+    const result = await deleteCustomer(req.params.id, {
+      actorId: req.user?.id || null,
+      deleteDropboxFolder,
+    });
+    res.json({ ok: true, dropboxDeleted: result.dropboxDeleted, counts: result.counts });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const statusCode = resolveErrorStatus(err);
+    res.status(statusCode).json({ error: err.message || "Failed to delete customer" });
   }
 });
 
