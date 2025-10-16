@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { isAxiosError } from "axios";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   FiAlertTriangle,
@@ -262,6 +263,99 @@ function normalizeTaskFromApi(task) {
     groupKey: task.group_key || null,
     notes: typeof task.notes === "string" ? task.notes : "",
   };
+}
+
+function adaptLegacyTasksResponse(payload, groupBy) {
+  const items = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const pushTask = (task, extras = {}) => {
+    if (!task) return;
+    const dueRaw = task.due_date || task.due_on || null;
+    let overdue = false;
+    if (dueRaw) {
+      const dueDate = new Date(dueRaw);
+      if (!Number.isNaN(dueDate.getTime())) {
+        overdue = dueDate < today;
+      }
+    }
+    const normalized = normalizeTaskFromApi({
+      ...task,
+      ...extras,
+      overdue,
+    });
+    if (normalized) {
+      items.push(normalized);
+    }
+  };
+
+  if (groupBy === "customer" && Array.isArray(payload)) {
+    payload.forEach((group) => {
+      const groupKey = group.customer_id
+        ? `customer:${group.customer_id}`
+        : group.customer_name
+        ? `customer:${group.customer_name}`
+        : "customer:unknown";
+      const tasks = Array.isArray(group.tasks) ? group.tasks : [];
+      tasks.forEach((task) =>
+        pushTask(task, {
+          status: task.status || "pending",
+          customer_id: group.customer_id,
+          customer_name: group.customer_name,
+          group_key: groupKey,
+        })
+      );
+    });
+  } else if (Array.isArray(payload)) {
+    payload.forEach((task) => {
+      pushTask(task, { status: task?.status || "pending" });
+    });
+  } else if (payload && Array.isArray(payload.items)) {
+    payload.items.forEach((task) => {
+      pushTask(task, { status: task?.status || "pending" });
+    });
+  }
+
+  return { items };
+}
+
+function deriveLegacyGroups(items, groupBy) {
+  if (!Array.isArray(items) || groupBy !== "customer") {
+    return [];
+  }
+  const groups = new Map();
+  items.forEach((item) => {
+    const key = item.groupKey || (item.customerId ? `customer:${item.customerId}` : null);
+    if (!key) {
+      return;
+    }
+    const existing = groups.get(key) || {
+      key,
+      label: item.customerName || "Customer",
+      count: 0,
+      earliestDue: null,
+    };
+    existing.count += 1;
+    if (item.dueDate) {
+      const dueDate = new Date(item.dueDate);
+      if (!Number.isNaN(dueDate.getTime())) {
+        if (!existing.earliestDue || dueDate < existing.earliestDue) {
+          existing.earliestDue = dueDate;
+        }
+      }
+    }
+    groups.set(key, existing);
+  });
+
+  return Array.from(groups.values())
+    .sort((a, b) => {
+      if (!a.earliestDue && !b.earliestDue) return 0;
+      if (!a.earliestDue) return 1;
+      if (!b.earliestDue) return -1;
+      return a.earliestDue - b.earliestDue;
+    })
+    .map(({ earliestDue, ...rest }) => rest);
 }
 function loadSavedViews(userId) {
   if (typeof window === "undefined") return [];
@@ -584,6 +678,7 @@ export default function MyTasks() {
   const [drawerTask, setDrawerTask] = useState(null);
   const [drawerTab, setDrawerTab] = useState("task");
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [useLegacyApi, setUseLegacyApi] = useState(false);
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [bulkAction, setBulkAction] = useState({ mode: null, data: null });
   const [agents, setAgents] = useState([]);
@@ -829,17 +924,15 @@ export default function MyTasks() {
     }
     setLoading(true);
     setError("");
-    try {
-      const response = await api.get("/api/tasks", { params: queryParams });
-      const items = Array.isArray(response.data?.items)
-        ? response.data.items.map(normalizeTaskFromApi).filter(Boolean)
-        : [];
-      const groups = Array.isArray(response.data?.groups) ? response.data.groups : [];
-      const total = Number(response.data?.total || 0);
-      const responsePage = Number(response.data?.page || page);
-      const responsePageSize = Number(response.data?.page_size || pageSize);
 
-      setData({ items, groups, total, page: responsePage, pageSize: responsePageSize });
+    const applyResponse = (itemsRaw, groupsRaw, totalRaw, responsePage, responsePageSize) => {
+      const items = Array.isArray(itemsRaw) ? itemsRaw : [];
+      const groups = Array.isArray(groupsRaw) ? groupsRaw : [];
+      const total = Number.isFinite(totalRaw) ? totalRaw : items.length;
+      const nextPage = Number.isFinite(responsePage) ? responsePage : page;
+      const nextPageSize = Number.isFinite(responsePageSize) ? responsePageSize : pageSize;
+
+      setData({ items, groups, total, page: nextPage, pageSize: nextPageSize });
       setAvailableTags((prev) => {
         const tags = new Set(prev);
         items.forEach((task) => {
@@ -850,6 +943,7 @@ export default function MyTasks() {
 
       setCollapsedGroups((prev) => {
         if (groups.length === 0) {
+          persistCollapsedGroups(userId, groupBy, []);
           return new Set();
         }
         const allowed = new Set(groups.map((group) => group.key));
@@ -884,7 +978,111 @@ export default function MyTasks() {
           setIsDrawerOpen(false);
         }
       }
+    };
+
+    const runLegacyFetch = async (notifyFallback = false) => {
+      try {
+        const legacyParams = {};
+        if (groupBy === "customer") {
+          legacyParams.group_by = "customer";
+        }
+        const statusParam = queryParams.status;
+        const statusList = Array.isArray(statusParam)
+          ? statusParam
+          : typeof statusParam !== "undefined"
+          ? [statusParam]
+          : [];
+        legacyParams.status = statusList.length === 1 && statusList[0] === "completed" ? "completed" : "pending";
+
+        const response = await api.get("/api/tasks/my", { params: legacyParams });
+        const adapted = adaptLegacyTasksResponse(response.data, groupBy);
+        let items = Array.isArray(adapted.items) ? adapted.items.slice() : [];
+
+        const searchTermValue =
+          typeof queryParams.q === "string" ? queryParams.q.trim().toLowerCase() : "";
+        if (searchTermValue) {
+          items = items.filter((task) => {
+            const tokens = [task.title || "", task.customerName || "", task.customerCode || ""];
+            if (Array.isArray(task.tags)) {
+              tokens.push(task.tags.join(" "));
+            }
+            return tokens.join(" ").toLowerCase().includes(searchTermValue);
+          });
+        }
+
+        if (statusFilter.length > 0) {
+          items = items.filter((task) => statusFilter.includes(task.status || "pending"));
+        }
+
+        if (queryParams.overdue_only) {
+          items = items.filter(
+            (task) => task.overdue && (task.status || "pending") !== "completed"
+          );
+        }
+
+        items.sort((a, b) => {
+          const dueA = a.dueDate ? new Date(a.dueDate) : null;
+          const dueB = b.dueDate ? new Date(b.dueDate) : null;
+          const validA = dueA && !Number.isNaN(dueA.getTime());
+          const validB = dueB && !Number.isNaN(dueB.getTime());
+          if (validA && validB) {
+            if (dueA.getTime() !== dueB.getTime()) {
+              return dueA - dueB;
+            }
+          } else if (validA) {
+            return -1;
+          } else if (validB) {
+            return 1;
+          }
+          return (a.title || "").localeCompare(b.title || "");
+        });
+
+        const groups = groupBy !== "none" ? deriveLegacyGroups(items, groupBy) : [];
+        const fallbackPageSize = items.length > 0 ? Math.max(items.length, pageSize) : pageSize;
+        applyResponse(items, groups, items.length, 1, fallbackPageSize);
+        if (page !== 1) {
+          setPage(1);
+        }
+        if (notifyFallback) {
+          showToast(
+            "info",
+            "Using limited task data while the new tasks API is unavailable."
+          );
+        }
+        return true;
+      } catch (legacyError) {
+        const message =
+          legacyError.response?.data?.error || legacyError.message || "Failed to load tasks";
+        setError(message);
+        setData((prev) => ({ ...prev, items: [], groups: [], total: 0 }));
+        return false;
+      }
+    };
+
+    try {
+      if (useLegacyApi) {
+        await runLegacyFetch();
+        return;
+      }
+
+      const response = await api.get("/api/tasks", { params: queryParams });
+      const items = Array.isArray(response.data?.items)
+        ? response.data.items.map(normalizeTaskFromApi).filter(Boolean)
+        : [];
+      const groups = Array.isArray(response.data?.groups) ? response.data.groups : [];
+      const total = Number(response.data?.total || 0);
+      const responsePage = Number(response.data?.page || page);
+      const responsePageSize = Number(response.data?.page_size || pageSize);
+
+      applyResponse(items, groups, total, responsePage, responsePageSize);
     } catch (err) {
+      if (isAxiosError(err) && err.response?.status === 404) {
+        const success = await runLegacyFetch(true);
+        if (success) {
+          setUseLegacyApi(true);
+          return;
+        }
+      }
       const message = err.response?.data?.error || err.message || "Failed to load tasks";
       setError(message);
       setData((prev) => ({ ...prev, items: [], groups: [], total: 0 }));
@@ -905,8 +1103,10 @@ export default function MyTasks() {
     page,
     pageSize,
     queryParams,
+    showToast,
     statusFilter,
     synchronizingUrl,
+    useLegacyApi,
     userId,
   ]);
 
@@ -2182,6 +2382,16 @@ export default function MyTasks() {
           </div>
         </div>
       </div>
+
+      {useLegacyApi && (
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <FiAlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>
+            Showing a limited task view while the new tasks service is unavailable. Some filters and
+            groupings may be reduced.
+          </span>
+        </div>
+      )}
 
       {isDesktop ? renderDesktopContent() : renderMobileContent()}
 
