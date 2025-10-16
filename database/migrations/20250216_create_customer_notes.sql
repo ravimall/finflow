@@ -9,6 +9,3 @@ CREATE TABLE IF NOT EXISTS customer_notes (
 
 CREATE INDEX IF NOT EXISTS idx_customer_notes_customer_id ON customer_notes(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customer_notes_customer_id_created_at ON customer_notes(customer_id, created_at DESC);
-
--- Down
-DROP TABLE IF EXISTS customer_notes;
