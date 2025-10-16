@@ -229,6 +229,25 @@ async function normalizePrimaryAgentId(rawValue, transaction) {
   return agent.id;
 }
 
+const customerUpdateValidators = [
+  body("name").optional().isString().trim().isLength({ min: 1 }).withMessage("Name cannot be empty"),
+  body("email").optional().isEmail().withMessage("Invalid email address"),
+  body("phone").optional().isString().isLength({ max: 100 }).withMessage("Phone is too long"),
+  body("address").optional().isString(),
+  body("status").optional().isString(),
+  body("flat_no").optional().isLength({ max: 50 }).withMessage("Flat number is too long"),
+  body("primary_agent_id").optional().isInt({ min: 1 }).withMessage("Invalid primary agent"),
+  body("dropboxFolderPath").optional().isString().isLength({ max: 255 }),
+  body("dropbox_folder_path").optional().isString().isLength({ max: 255 }),
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    return next();
+  },
+];
+
 async function resolveTaskAssignee(customer, requestedAssigneeId, defaultRole, transaction) {
   if (requestedAssigneeId) {
     const parsed = Number(requestedAssigneeId);
@@ -532,8 +551,8 @@ async function handleCustomerUpdate(req, res) {
   }
 }
 
-router.put("/:id", auth(), canEditCustomer, handleCustomerUpdate);
-router.patch("/:id", auth(), canEditCustomer, handleCustomerUpdate);
+router.put("/:id", auth(), canEditCustomer, customerUpdateValidators, handleCustomerUpdate);
+router.patch("/:id", auth(), canEditCustomer, customerUpdateValidators, handleCustomerUpdate);
 
 router.delete("/:id", auth("admin"), async (req, res) => {
   try {
