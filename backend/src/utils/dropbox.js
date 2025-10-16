@@ -16,50 +16,6 @@ function logDropboxAction(action, path, userId) {
   );
 }
 
-async function ensureSharedLink(path) {
-  if (!path) {
-    return null;
-  }
-
-  try {
-    const existing = await dbx.sharingListSharedLinks({ path, direct_only: true });
-    const link = existing?.result?.links?.[0]?.url;
-    if (link) {
-      return link.replace("?dl=0", "?dl=1");
-    }
-  } catch (error) {
-    const summary = error?.error?.error_summary || "";
-    if (!summary.includes("not_found")) {
-      // eslint-disable-next-line no-console
-      console.warn(`⚠️ Dropbox shared link lookup failed for ${path}: ${summary || error.message}`);
-    }
-  }
-
-  try {
-    const created = await dbx.sharingCreateSharedLinkWithSettings({ path });
-    return created?.result?.url?.replace("?dl=0", "?dl=1") || null;
-  } catch (error) {
-    const summary = error?.error?.error_summary || "";
-    if (summary.includes("shared_link_already_exists")) {
-      try {
-        const existing = await dbx.sharingListSharedLinks({ path, direct_only: true });
-        const link = existing?.result?.links?.[0]?.url;
-        return link ? link.replace("?dl=0", "?dl=1") : null;
-      } catch (inner) {
-        const innerSummary = inner?.error?.error_summary || inner?.message || "unknown error";
-        // eslint-disable-next-line no-console
-        console.error(`❌ Dropbox shared link recovery failed for ${path}: ${innerSummary}`);
-        return null;
-      }
-    }
-
-    const message = summary || error?.message || "unknown error";
-    // eslint-disable-next-line no-console
-    console.error(`❌ Dropbox shared link creation failed for ${path}: ${message}`);
-    return null;
-  }
-}
-
 async function ensureFolderHierarchy(path) {
   const parts = path
     .split("/")
@@ -106,26 +62,20 @@ async function listFolder(path) {
       cursor = response.result?.has_more ? response.result.cursor : null;
     }
 
-    const mapped = await Promise.all(
-      entries.map(async (entry) => {
-        const isFolder = entry[".tag"] === "folder";
-        const sharedLink = !isFolder
-          ? await ensureSharedLink(entry.path_lower || entry.path_display)
-          : null;
+    const mapped = entries.map((entry) => {
+      const isFolder = entry[".tag"] === "folder";
 
-        return {
-          id: entry.id,
-          name: entry.name,
-          path_lower: entry.path_lower,
-          path_display: entry.path_display,
-          is_folder: isFolder,
-          size: isFolder ? null : entry.size,
-          client_modified: entry.client_modified || null,
-          server_modified: entry.server_modified || null,
-          download_url: sharedLink,
-        };
-      })
-    );
+      return {
+        id: entry.id,
+        name: entry.name,
+        path_lower: entry.path_lower,
+        path_display: entry.path_display,
+        is_folder: isFolder,
+        size: isFolder ? null : entry.size,
+        client_modified: entry.client_modified || null,
+        server_modified: entry.server_modified || null,
+      };
+    });
 
     return mapped;
   } catch (error) {
@@ -175,7 +125,6 @@ module.exports = {
   ensureCustomerFolder,
   listFolder,
   combineWithinFolder,
-  ensureSharedLink,
   isLegacyDropboxPath,
   LEGACY_PATH_PREFIXES,
   logDropboxAction,

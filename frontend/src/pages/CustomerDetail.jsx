@@ -566,7 +566,6 @@ export default function CustomerDetail() {
   }
 
   const dropboxPath = dropboxLink?.customer?.dropboxFolderPath || customer.dropboxFolderPath;
-  const dropboxUrl = dropboxLink?.dropbox_url || null;
   const dropboxStatus = dropboxProvisioningStatus.toLowerCase();
   const isDropboxReady = dropboxStatus === "ok";
   const dropboxLastError =
@@ -592,6 +591,9 @@ export default function CustomerDetail() {
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">{customer.name}</h1>
             <p className="font-mono text-xs text-gray-500">{customer.customer_id}</p>
+            <p className="text-xs text-gray-500 break-all">
+              Dropbox folder: {dropboxPath || "Not yet created"}
+            </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
             {canEditCustomer && !editingDetails && (
@@ -610,24 +612,6 @@ export default function CustomerDetail() {
             >
               📁 View Files
             </button>
-            {isDropboxReady && dropboxUrl ? (
-              <a
-                href={dropboxUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-blue-600 px-4 text-sm font-semibold text-blue-600 transition hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:w-auto"
-              >
-                🔗 Open Dropbox
-              </a>
-            ) : (
-              <button
-                type="button"
-                disabled
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-500 transition sm:w-auto disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                🔗 Open Dropbox
-              </button>
-            )}
           </div>
         </header>
 
