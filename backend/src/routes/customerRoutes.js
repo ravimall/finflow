@@ -24,6 +24,7 @@ const {
   queueDropboxProvisioning,
   provisionDropboxForCustomer,
 } = require("../services/dropboxProvisioning");
+const { createCustomerNotesHandler } = require("../controllers/customerNotes");
 const { logAudit } = require("../utils/audit");
 const {
   getCustomerDeletionPreview,
@@ -690,22 +691,15 @@ async function handleAgentAssignment(req, res) {
   }
 }
 
-router.get("/:id/notes", auth(), async (req, res) => {
-  try {
-    await assertCustomerAccess(req.user, req.params.id);
-    const notes = await CustomerNote.findAll({
-      where: { customer_id: req.params.id },
-      include: [
-        { model: User, as: "author", attributes: ["id", "name", "email", "role"] },
-      ],
-      order: [["created_at", "DESC"]],
-    });
-    res.json(notes);
-  } catch (err) {
-    const statusCode = resolveErrorStatus(err);
-    res.status(statusCode).json({ error: err.message });
-  }
+const handleGetCustomerNotes = createCustomerNotesHandler({
+  CustomerModel: Customer,
+  CustomerNoteModel: CustomerNote,
+  UserModel: User,
+  assertCustomerAccess,
+  logger: console,
 });
+
+router.get("/:id/notes", auth(), handleGetCustomerNotes);
 
 router.post(
   "/:id/notes",
@@ -1115,3 +1109,4 @@ router.get("/:id/dropbox-list", auth(), async (req, res) => {
 });
 
 module.exports = router;
+module.exports.handleGetCustomerNotes = handleGetCustomerNotes;

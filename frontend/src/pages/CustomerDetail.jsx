@@ -65,6 +65,8 @@ export default function CustomerDetail() {
   const [noteInput, setNoteInput] = useState("");
   const [noteError, setNoteError] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
+  const [notesRefreshing, setNotesRefreshing] = useState(false);
+  const [notesFetchError, setNotesFetchError] = useState("");
   const [tasks, setTasks] = useState([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskError, setTaskError] = useState("");
@@ -134,11 +136,20 @@ export default function CustomerDetail() {
   }, [id]);
 
   const refreshNotes = useCallback(async () => {
+    setNotesRefreshing(true);
+    setNotesFetchError("");
     try {
       const response = await api.get(`/api/customers/${id}/notes`);
       setNotes(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        "Couldn't load notes right now.";
       setNotes([]);
+      setNotesFetchError(message);
+    } finally {
+      setNotesRefreshing(false);
     }
   }, [id]);
 
@@ -389,6 +400,7 @@ export default function CustomerDetail() {
     }
     setNotesLoading(true);
     setNoteError("");
+    setNotesFetchError("");
     try {
       const response = await api.post(`/api/customers/${id}/notes`, { note: noteInput.trim() });
       setNotes((prev) => [response.data, ...prev]);
@@ -409,6 +421,31 @@ export default function CustomerDetail() {
       note: item.note,
     }));
   }, [notes]);
+
+  const handleRetryNotes = useCallback(() => {
+    refreshNotes();
+  }, [refreshNotes]);
+
+  const handleOpenDeleteModal = useCallback(() => {
+    setDeleteModalOpen(true);
+  }, []);
+
+  const handleCloseDeleteModal = useCallback(() => {
+    setDeleteModalOpen(false);
+  }, []);
+
+  const handleCustomerDeleted = useCallback(
+    ({ dropboxDeleted }) => {
+      showToast(
+        "success",
+        dropboxDeleted
+          ? "Customer and Dropbox folder deleted."
+          : "Customer and related data deleted."
+      );
+      navigate("/customers");
+    },
+    [navigate, showToast]
+  );
 
   const loansView = useMemo(() => {
     return loans.map((loan) => ({
@@ -588,26 +625,6 @@ export default function CustomerDetail() {
       ? "border-red-200 bg-red-50 text-red-800"
       : "border-amber-200 bg-amber-50 text-amber-800";
   const shouldShowRetryButton = dropboxStatus !== "ok";
-  const handleOpenDeleteModal = useCallback(() => {
-    setDeleteModalOpen(true);
-  }, []);
-
-  const handleCloseDeleteModal = useCallback(() => {
-    setDeleteModalOpen(false);
-  }, []);
-
-  const handleCustomerDeleted = useCallback(
-    ({ dropboxDeleted }) => {
-      showToast(
-        "success",
-        dropboxDeleted
-          ? "Customer and Dropbox folder deleted."
-          : "Customer and related data deleted."
-      );
-      navigate("/customers");
-    },
-    [navigate, showToast]
-  );
 
   return (
     <div className="space-y-8 pb-6">
@@ -865,7 +882,26 @@ export default function CustomerDetail() {
           </div>
         </div>
         <div className="space-y-3">
-          {notesView.length === 0 ? (
+          {notesRefreshing ? (
+            <div className="space-y-2">
+              <div className="h-20 animate-pulse rounded-2xl bg-gray-100" />
+              <div className="h-16 animate-pulse rounded-2xl bg-gray-100" />
+            </div>
+          ) : notesFetchError ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p>{notesFetchError}</p>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleRetryNotes}
+                  disabled={notesRefreshing}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-current px-4 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Retry loading notes
+                </button>
+              </div>
+            </div>
+          ) : notesView.length === 0 ? (
             <p className="text-sm text-gray-500">No notes yet.</p>
           ) : (
             notesView.map((item) => (
