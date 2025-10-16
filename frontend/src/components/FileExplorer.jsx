@@ -14,7 +14,6 @@ import {
   FiFileText,
   FiFolder,
   FiImage,
-  FiLink,
   FiList,
   FiMoreVertical,
   FiPlusCircle,
@@ -427,57 +426,6 @@ export default function FileExplorer({ customerId, customerName }) {
       showToast("error", message);
     }
   }, [showToast]);
-
-  const handleCopyLink = useCallback(
-    async (path) => {
-      if (!path) return;
-      let shareUrl = null;
-      let lastError = null;
-
-      try {
-        const { preview_url: previewUrl } = await getDropboxPreviewLink(path);
-        if (previewUrl) {
-          shareUrl = previewUrl;
-        }
-      } catch (err) {
-        lastError = err;
-      }
-
-      if (!shareUrl) {
-        try {
-          const { url } = await getDropboxDownloadLink(path);
-          if (url) {
-            shareUrl = url;
-          }
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      if (!shareUrl) {
-        const message =
-          lastError?.response?.data?.error || lastError?.message || "Unable to copy link";
-        showToast("error", message);
-        return;
-      }
-
-      try {
-        if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText) {
-          await navigator.clipboard.writeText(shareUrl);
-          showToast("success", "Link copied to clipboard");
-        } else {
-          if (typeof window !== "undefined" && window?.prompt) {
-            window.prompt("Copy link", shareUrl);
-          }
-          showToast("success", "Link ready to copy");
-        }
-      } catch (err) {
-        const message = err?.message || "Unable to copy link";
-        showToast("error", message);
-      }
-    },
-    [showToast]
-  );
 
   const fetchPreviewLinkForPath = useCallback(
     async (path, { showError = true } = {}) => {
@@ -1245,14 +1193,6 @@ export default function FileExplorer({ customerId, customerName }) {
                             </p>
                           </div>
                           <div className="flex flex-shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleCopyLink(file.path)}
-                              aria-label={`Copy link for ${name}`}
-                              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700 transition hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                            >
-                              <FiLink className="h-4 w-4" aria-hidden="true" />
-                            </button>
                             {!file.is_folder && (
                               <button
                                 type="button"

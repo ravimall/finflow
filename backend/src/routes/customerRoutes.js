@@ -19,11 +19,7 @@ const {
 const auth = require("../middleware/auth");
 const canEditCustomer = require("../middleware/canEditCustomer");
 const { listFolder, combineWithinFolder, logDropboxAction } = require("../utils/dropbox");
-const {
-  shouldUseFolderId,
-  resolveFolderPath,
-  resolveDropboxWebLink,
-} = require("../services/dropboxFolders");
+const { shouldUseFolderId, resolveFolderPath } = require("../services/dropboxFolders");
 const {
   queueDropboxProvisioning,
   provisionDropboxForCustomer,
@@ -1010,18 +1006,13 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
     }
 
     let resolvedPath = customer.dropboxFolderPath;
-    let resolvedUrl = null;
 
     if (shouldUseFolderId() && customer.dropboxFolderId) {
-      const url = await resolveDropboxWebLink(customer.dropboxFolderId);
-      resolvedUrl = url;
       const latestPath = await resolveFolderPath(customer.dropboxFolderId);
       if (latestPath && latestPath !== customer.dropboxFolderPath) {
         resolvedPath = latestPath;
         await customer.update({ dropboxFolderPath: latestPath });
       }
-    } else if (customer.dropboxFolderPath) {
-      resolvedUrl = `https://www.dropbox.com/home${encodeURI(customer.dropboxFolderPath)}`;
     }
 
     res.json({
@@ -1035,7 +1026,6 @@ router.get("/:id/dropbox-link", auth(), async (req, res) => {
         dropboxLastError: customer.dropboxLastError,
         primaryAgent: customer.primaryAgent,
       },
-      dropbox_url: resolvedUrl,
       documents_url: `/documents?customer_id=${customer.id}`,
     });
   } catch (err) {

@@ -15,11 +15,11 @@ const {
   ensureFolderHierarchy,
   listFolder,
   combineWithinFolder,
-  ensureSharedLink,
   isLegacyDropboxPath,
   sanitizeSegment,
   logDropboxAction,
 } = require("../utils/dropbox");
+const { sanitizeFileName, buildUploadPath } = require("../utils/dropboxUpload");
 const {
   shouldUseFolderId,
   getOrCreateCustomerFolder,
@@ -236,10 +236,6 @@ async function ensureCustomerFolderPath(customer, actingUserId, transaction) {
   return outcome;
 }
 
-function sanitizeFileName(name) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-
 function sanitizeFolderName(name) {
   return sanitizeSegment(name, "Folder");
 }
@@ -250,10 +246,9 @@ async function refreshDocumentLink(document) {
   }
 
   try {
-    const linkRes = await dbx.filesGetTemporaryLink({ path: document.file_path });
-    if (linkRes?.result?.link && document.file_url !== linkRes.result.link) {
-      await document.update({ file_url: linkRes.result.link });
-      document.file_url = linkRes.result.link;
+    if (document.file_url) {
+      await document.update({ file_url: null });
+      document.file_url = null;
     }
   } catch (error) {
     // swallow errors to avoid blocking responses when link refresh fails
@@ -356,10 +351,7 @@ router.post(
 
       const uploaded = [];
       for (const file of files) {
-        const dropboxPath = `${destinationFolder}/${Date.now()}_${sanitizeFileName(
-          file.originalname
-        )}`;
-
+        const dropboxPath = buildUploadPath(destinationFolder, file.originalname);
         logDropboxAction("upload", dropboxPath, req.user?.id);
 
         const uploadResponse = await dbx.filesUpload({
@@ -369,15 +361,17 @@ router.post(
           autorename: true,
         });
 
-        const uploadPath = uploadResponse.result.path_lower;
-        const sharedLink = await ensureSharedLink(uploadPath);
+        const uploadResult = uploadResponse.result || {};
+        const uploadPathLower = uploadResult.path_lower || dropboxPath.toLowerCase();
+        const uploadPathDisplay = uploadResult.path_display || dropboxPath;
+        const storedName = uploadResult.name || sanitizeFileName(file.originalname);
 
         const document = await Document.create({
           customer_id: customer.id,
           uploaded_by: req.user.id,
-          file_name: file.originalname,
-          file_path: uploadPath,
-          file_url: sharedLink,
+          file_name: storedName,
+          file_path: uploadPathLower,
+          file_url: null,
           size_bytes: file.size,
           mime_type: file.mimetype,
         });
@@ -393,12 +387,18 @@ router.post(
           })
         );
 
+        // eslint-disable-next-line no-console
+        console.info(
+          `[DropboxUploadSuccess] customer=${customer.id} path=${uploadPathDisplay} bytes=${file.size}`
+        );
+
         uploaded.push({
           id: document.id,
+          file_name: document.file_name,
           name: document.file_name,
+          dropbox_path: uploadPathDisplay,
           path: document.file_path,
           size: document.size_bytes,
-          url: sharedLink,
           mime_type: document.mime_type,
         });
       }
@@ -488,7 +488,6 @@ router.get("/customer/:customer_id/dropbox", auth(), async (req, res) => {
       client_modified: entry.client_modified,
       server_modified: entry.server_modified,
       is_folder: entry.is_folder,
-      url: entry.is_folder ? null : entry.download_url,
     }));
 
     res.json({
@@ -591,14 +590,12 @@ router.post("/rename", auth(), async (req, res) => {
 
     const metadata = moveRes?.result?.metadata;
     const newPathLower = metadata?.path_lower || newPath.toLowerCase();
-    const sharedLink = await ensureSharedLink(newPathLower);
-
     const existingDoc = await Document.findOne({ where: { file_path: oldPath.toLowerCase() } });
     if (existingDoc) {
       await existingDoc.update({
         file_name: finalName,
         file_path: newPathLower,
-        file_url: sharedLink,
+        file_url: null,
       });
     }
 
@@ -613,11 +610,12 @@ router.post("/rename", auth(), async (req, res) => {
       message: "File renamed",
       file: {
         id: metadata?.id,
+        file_name: metadata?.name || finalName,
         name: metadata?.name || finalName,
+        dropbox_path: metadata?.path_display || metadata?.path_lower || newPath,
         path: metadata?.path_display || metadata?.path_lower || newPath,
         size: metadata?.size || null,
         client_modified: metadata?.client_modified || null,
-        url: sharedLink,
       },
     });
   } catch (err) {
