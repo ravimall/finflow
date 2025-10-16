@@ -1,10 +1,12 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { FiBell, FiCheckCircle, FiEdit3, FiPlus } from "react-icons/fi";
+import { FiBell, FiCheckCircle, FiEdit3, FiPlus, FiTrash2 } from "react-icons/fi";
 import LoanForm from "../components/LoanForm";
 import LoanDrawer from "../components/LoanDrawer";
 import { AuthContext } from "../context/AuthContext";
 import { api } from "../lib/api.js";
+import CustomerDeleteModal from "../components/CustomerDeleteModal.jsx";
+import { useToast } from "../context/ToastContext.jsx";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -36,6 +38,7 @@ export default function CustomerDetail() {
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === "admin";
+  const { showToast } = useToast();
 
   const [customer, setCustomer] = useState(null);
   const [dropboxLink, setDropboxLink] = useState(null);
@@ -62,6 +65,8 @@ export default function CustomerDetail() {
   const [noteInput, setNoteInput] = useState("");
   const [noteError, setNoteError] = useState("");
   const [notesLoading, setNotesLoading] = useState(false);
+  const [notesRefreshing, setNotesRefreshing] = useState(false);
+  const [notesFetchError, setNotesFetchError] = useState("");
   const [tasks, setTasks] = useState([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskError, setTaskError] = useState("");
@@ -88,6 +93,7 @@ export default function CustomerDetail() {
   const [showLoanForm, setShowLoanForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const customerRecordId = customer?.id ?? null;
   const dropboxProvisioningStatus =
     dropboxLink?.customer?.dropboxProvisioningStatus ??
@@ -130,11 +136,20 @@ export default function CustomerDetail() {
   }, [id]);
 
   const refreshNotes = useCallback(async () => {
+    setNotesRefreshing(true);
+    setNotesFetchError("");
     try {
       const response = await api.get(`/api/customers/${id}/notes`);
       setNotes(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        "Couldn't load notes right now.";
       setNotes([]);
+      setNotesFetchError(message);
+    } finally {
+      setNotesRefreshing(false);
     }
   }, [id]);
 
@@ -385,6 +400,7 @@ export default function CustomerDetail() {
     }
     setNotesLoading(true);
     setNoteError("");
+    setNotesFetchError("");
     try {
       const response = await api.post(`/api/customers/${id}/notes`, { note: noteInput.trim() });
       setNotes((prev) => [response.data, ...prev]);
@@ -405,6 +421,31 @@ export default function CustomerDetail() {
       note: item.note,
     }));
   }, [notes]);
+
+  const handleRetryNotes = useCallback(() => {
+    refreshNotes();
+  }, [refreshNotes]);
+
+  const handleOpenDeleteModal = useCallback(() => {
+    setDeleteModalOpen(true);
+  }, []);
+
+  const handleCloseDeleteModal = useCallback(() => {
+    setDeleteModalOpen(false);
+  }, []);
+
+  const handleCustomerDeleted = useCallback(
+    ({ dropboxDeleted }) => {
+      showToast(
+        "success",
+        dropboxDeleted
+          ? "Customer and Dropbox folder deleted."
+          : "Customer and related data deleted."
+      );
+      navigate("/customers");
+    },
+    [navigate, showToast]
+  );
 
   const loansView = useMemo(() => {
     return loans.map((loan) => ({
@@ -584,6 +625,7 @@ export default function CustomerDetail() {
       ? "border-red-200 bg-red-50 text-red-800"
       : "border-amber-200 bg-amber-50 text-amber-800";
   const shouldShowRetryButton = dropboxStatus !== "ok";
+
   return (
     <div className="space-y-8 pb-6">
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
@@ -603,6 +645,15 @@ export default function CustomerDetail() {
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400 sm:w-auto"
               >
                 <FiEdit3 aria-hidden="true" /> Edit details
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={handleOpenDeleteModal}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-red-200 px-4 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 sm:w-auto"
+              >
+                <FiTrash2 aria-hidden="true" /> Delete customer
               </button>
             )}
             <button
@@ -831,7 +882,26 @@ export default function CustomerDetail() {
           </div>
         </div>
         <div className="space-y-3">
-          {notesView.length === 0 ? (
+          {notesRefreshing ? (
+            <div className="space-y-2">
+              <div className="h-20 animate-pulse rounded-2xl bg-gray-100" />
+              <div className="h-16 animate-pulse rounded-2xl bg-gray-100" />
+            </div>
+          ) : notesFetchError ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p>{notesFetchError}</p>
+              <div>
+                <button
+                  type="button"
+                  onClick={handleRetryNotes}
+                  disabled={notesRefreshing}
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-current px-4 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Retry loading notes
+                </button>
+              </div>
+            </div>
+          ) : notesView.length === 0 ? (
             <p className="text-sm text-gray-500">No notes yet.</p>
           ) : (
             notesView.map((item) => (
@@ -1205,6 +1275,14 @@ export default function CustomerDetail() {
         onClose={() => setLoanDrawerId(null)}
         onSaved={refreshLoans}
       />
+      {isAdmin && (
+        <CustomerDeleteModal
+          open={deleteModalOpen}
+          onClose={handleCloseDeleteModal}
+          customer={customer}
+          onDeleted={handleCustomerDeleted}
+        />
+      )}
     </div>
   );
 }
