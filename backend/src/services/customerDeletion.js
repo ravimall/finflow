@@ -132,14 +132,13 @@ async function deleteCustomer(customerId, options = {}) {
       await Loan.destroy({ where: { customer_id: customer.id }, transaction });
       await CustomerAgent.destroy({ where: { customer_id: customer.id }, transaction });
 
-      await Customer.destroy({ where: { id: customer.id }, transaction });
-
       const auditDetails = {
         status: "success",
         dropboxDeleteRequested: dropboxRequested,
         dropboxDeleted: Boolean(dropboxOutcome.deleted),
         dropboxNotFound: Boolean(dropboxOutcome.notFound),
         counts: resultCounts,
+        customerId: customer.id,
       };
       await logAudit(
         actorId,
@@ -148,6 +147,8 @@ async function deleteCustomer(customerId, options = {}) {
         JSON.stringify(auditDetails),
         transaction
       );
+
+      await Customer.destroy({ where: { id: customer.id }, transaction });
     });
   } catch (error) {
     const details = {
@@ -155,6 +156,7 @@ async function deleteCustomer(customerId, options = {}) {
       dropboxDeleteRequested: dropboxRequested,
       dropboxDeleted: Boolean(dropboxOutcome.deleted),
       reason: summarizeError(error),
+      customerId: customer.id,
     };
     await logAudit(actorId, customer.id, "customer.delete", JSON.stringify(details));
     throw error;
