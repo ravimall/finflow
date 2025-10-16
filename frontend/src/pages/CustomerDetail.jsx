@@ -43,9 +43,21 @@ export default function CustomerDetail() {
   const [dropboxRetryError, setDropboxRetryError] = useState("");
   const [dropboxActionLoading, setDropboxActionLoading] = useState(false);
   const [agents, setAgents] = useState([]);
-  const [agentSelection, setAgentSelection] = useState("");
-  const [agentError, setAgentError] = useState("");
-  const [agentSuccess, setAgentSuccess] = useState("");
+  const [statuses, setStatuses] = useState([]);
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsError, setDetailsError] = useState("");
+  const [detailsSuccess, setDetailsSuccess] = useState("");
+  const [detailsForm, setDetailsForm] = useState({
+    name: "",
+    status: "",
+    phone: "",
+    email: "",
+    address: "",
+    flat_no: "",
+    dropboxFolderPath: "",
+    primary_agent_id: "",
+  });
   const [notes, setNotes] = useState([]);
   const [noteInput, setNoteInput] = useState("");
   const [noteError, setNoteError] = useState("");
@@ -98,6 +110,15 @@ export default function CustomerDetail() {
       setDropboxLink(null);
     }
   }, [id]);
+
+  useEffect(() => {
+    api
+      .get("/api/config/statuses", { params: { type: "customer" } })
+      .then((response) =>
+        setStatuses(Array.isArray(response.data) ? response.data : [])
+      )
+      .catch(() => setStatuses([]));
+  }, []);
 
   const refreshLoans = useCallback(async () => {
     try {
@@ -157,6 +178,138 @@ export default function CustomerDetail() {
     }
   }, [isAdmin]);
 
+  const canEditCustomer = useMemo(() => {
+    if (!customer || !user) {
+      return false;
+    }
+    if (user.role === "admin") {
+      return true;
+    }
+    return customer.primary_agent_id === user.id;
+  }, [customer, user]);
+
+  const beginEditingDetails = useCallback(() => {
+    if (!customer) return;
+
+    setDetailsForm({
+      name: customer.name || "",
+      status: customer.status || "",
+      phone: customer.phone || "",
+      email: customer.email || "",
+      address: customer.address || "",
+      flat_no: customer.flat_no || "",
+      dropboxFolderPath:
+        dropboxLink?.customer?.dropboxFolderPath ??
+        customer.dropboxFolderPath ??
+        "",
+      primary_agent_id: customer.primary_agent_id
+        ? String(customer.primary_agent_id)
+        : "",
+    });
+    setDetailsError("");
+    setDetailsSuccess("");
+    setEditingDetails(true);
+  }, [customer, dropboxLink]);
+
+  const cancelDetailsEditing = useCallback(() => {
+    setEditingDetails(false);
+    setDetailsSaving(false);
+    setDetailsError("");
+  }, []);
+
+  const handleDetailsChange = (event) => {
+    const { name, value } = event.target;
+    setDetailsForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const submitDetails = async (event) => {
+    event.preventDefault();
+    if (!customer) return;
+
+    const trimmedName = detailsForm.name.trim();
+    if (!trimmedName) {
+      setDetailsError("Name is required");
+      return;
+    }
+
+    setDetailsSaving(true);
+    setDetailsError("");
+
+    try {
+      const payload = {
+        name: trimmedName,
+        status: detailsForm.status || undefined,
+        phone: (detailsForm.phone || "").trim(),
+        email: (detailsForm.email || "").trim(),
+        address: (detailsForm.address || "").trim(),
+        flat_no: (detailsForm.flat_no || "").trim(),
+      };
+
+      if (!payload.status) {
+        delete payload.status;
+      }
+
+      const trimmedDropboxPath = (detailsForm.dropboxFolderPath || "").trim();
+      if (trimmedDropboxPath) {
+        payload.dropboxFolderPath = trimmedDropboxPath;
+      }
+
+      if (isAdmin) {
+        payload.primary_agent_id =
+          detailsForm.primary_agent_id === ""
+            ? ""
+            : Number(detailsForm.primary_agent_id);
+      }
+
+      const response = await api.patch(`/api/customers/${customer.id}`, payload);
+      const updatedCustomer = response.data?.customer ?? customer;
+
+      let nextPrimaryAgent = updatedCustomer.primaryAgent ?? customer.primaryAgent ?? null;
+      if (isAdmin) {
+        if (detailsForm.primary_agent_id === "") {
+          nextPrimaryAgent = null;
+        } else {
+          const selectedAgent = agents.find(
+            (agent) => String(agent.id) === detailsForm.primary_agent_id
+          );
+          if (selectedAgent) {
+            nextPrimaryAgent = selectedAgent;
+          }
+        }
+      }
+
+      setCustomer((prev) => ({
+        ...prev,
+        ...updatedCustomer,
+        primaryAgent: nextPrimaryAgent || null,
+      }));
+
+      setDropboxLink((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const nextCustomer = {
+          ...(prev.customer ?? {}),
+          dropboxFolderPath:
+            updatedCustomer.dropboxFolderPath ?? prev.customer?.dropboxFolderPath ?? null,
+        };
+        return { ...prev, customer: nextCustomer };
+      });
+
+      setDetailsSuccess(response.data?.message || "Customer updated successfully");
+      setEditingDetails(false);
+    } catch (err) {
+      const validationMessage = Array.isArray(err.response?.data?.errors)
+        ? err.response.data.errors[0]?.msg
+        : null;
+      const message =
+        validationMessage || err.response?.data?.error || err.message || "Unable to update customer";
+      setDetailsError(message);
+    } finally {
+      setDetailsSaving(false);
+    }
+  };
+
   const retryDropboxProvisioning = useCallback(async () => {
     if (!customerRecordId) return;
     setDropboxActionLoading(true);
@@ -190,9 +343,6 @@ export default function CustomerDetail() {
     try {
       const [customerRes] = await Promise.all([api.get(`/api/customers/${id}`)]);
       setCustomer(customerRes.data);
-      setAgentSelection(
-        customerRes.data?.primaryAgent?.id ? String(customerRes.data.primaryAgent.id) : ""
-      );
       await Promise.all([
         fetchDropboxLink(),
         refreshNotes(),
@@ -227,27 +377,6 @@ export default function CustomerDetail() {
       setTemplateError("");
     }
   }, [fetchTemplates, templateModalOpen]);
-
-  const handleAgentChange = async (event) => {
-    if (!customer) return;
-    const nextValue = event.target.value;
-    setAgentSelection(nextValue);
-    setAgentError("");
-    setAgentSuccess("");
-    try {
-      const payload = nextValue ? { agent_id: Number(nextValue) } : {};
-      const response = await api.put(`/api/customers/${customer.id}/assign-agent`, payload);
-      setCustomer(response.data?.customer ?? customer);
-      setAgentSelection(response.data?.agent?.id ? String(response.data.agent.id) : "");
-      setAgentSuccess("Agent assignment updated");
-      setDropboxRetryMessage("");
-      setDropboxRetryError("");
-      await fetchDropboxLink();
-    } catch (err) {
-      const message = err.response?.data?.error || err.message || "Unable to assign agent";
-      setAgentError(message);
-    }
-  };
 
   const addNote = async () => {
     if (!noteInput.trim()) {
@@ -456,8 +585,6 @@ export default function CustomerDetail() {
       ? "border-red-200 bg-red-50 text-red-800"
       : "border-amber-200 bg-amber-50 text-amber-800";
   const shouldShowRetryButton = dropboxStatus !== "ok";
-  const agentName = customer.primaryAgent?.name || customer.primaryAgent?.email || "Admin";
-
   return (
     <div className="space-y-8 pb-6">
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
@@ -467,6 +594,15 @@ export default function CustomerDetail() {
             <p className="font-mono text-xs text-gray-500">{customer.customer_id}</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
+            {canEditCustomer && !editingDetails && (
+              <button
+                type="button"
+                onClick={beginEditingDetails}
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400 sm:w-auto"
+              >
+                <FiEdit3 aria-hidden="true" /> Edit details
+              </button>
+            )}
             <button
               type="button"
               onClick={openDocuments}
@@ -519,53 +655,171 @@ export default function CustomerDetail() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
-            <p className="text-base text-gray-900">{customer.status}</p>
-          </div>
-          <div className="space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</p>
-            {isAdmin ? (
-              <div className="flex flex-col gap-1">
+        {detailsSuccess && !editingDetails && (
+          <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
+            {detailsSuccess}
+          </p>
+        )}
+
+        {editingDetails ? (
+          <form onSubmit={submitDetails} className="space-y-4">
+            {detailsError && <p className="text-sm text-red-600">{detailsError}</p>}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Name</span>
+                <input
+                  name="name"
+                  value={detailsForm.name}
+                  onChange={handleDetailsChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</span>
                 <select
-                  value={agentSelection}
-                  onChange={handleAgentChange}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  name="status"
+                  value={detailsForm.status}
+                  onChange={handleDetailsChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={!statuses.length}
                 >
-                  <option value="">Assign to admin</option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.name || agent.email}
+                  {statuses.length === 0 && (
+                    <option value={detailsForm.status || ""}>
+                      {detailsForm.status || "Loading statuses…"}
+                    </option>
+                  )}
+                  {statuses.map((status) => (
+                    <option key={status.id} value={status.name}>
+                      {status.name}
                     </option>
                   ))}
                 </select>
-                {agentError && <span className="text-xs text-red-600">{agentError}</span>}
-                {agentSuccess && <span className="text-xs text-green-600">{agentSuccess}</span>}
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</span>
+                <input
+                  name="phone"
+                  value={detailsForm.phone}
+                  onChange={handleDetailsChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</span>
+                <input
+                  name="email"
+                  type="email"
+                  value={detailsForm.email}
+                  onChange={handleDetailsChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</span>
+                <input
+                  name="flat_no"
+                  value={detailsForm.flat_no}
+                  onChange={handleDetailsChange}
+                  maxLength={50}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1 sm:col-span-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</span>
+                <textarea
+                  name="address"
+                  rows={3}
+                  value={detailsForm.address}
+                  onChange={handleDetailsChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1 sm:col-span-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder path</span>
+                <input
+                  name="dropboxFolderPath"
+                  value={detailsForm.dropboxFolderPath}
+                  onChange={handleDetailsChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="/Apps/FinFlow/customer-folder"
+                />
+              </label>
+              {isAdmin && (
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</span>
+                  <select
+                    name="primary_agent_id"
+                    value={detailsForm.primary_agent_id}
+                    onChange={handleDetailsChange}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Unassigned</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.name || agent.email}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="submit"
+                disabled={detailsSaving}
+                className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                {detailsSaving ? "Saving…" : "Save changes"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelDetailsEditing}
+                disabled={detailsSaving}
+                className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
+              <p className="text-base text-gray-900">{customer.status}</p>
+            </div>
+            <div className="space-y-1 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</p>
+              <p className="text-base text-gray-900">{customer.flat_no || "—"}</p>
+            </div>
+            {isAdmin && (
+              <div className="space-y-1 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</p>
+                <p className="text-base text-gray-900">
+                  {customer.primaryAgent?.name || customer.primaryAgent?.email || "Unassigned"}
+                </p>
               </div>
-            ) : (
-              <p className="text-base text-gray-900">{agentName}</p>
             )}
+            <div className="space-y-1 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
+              <p>{customer.email || "—"}</p>
+            </div>
+            <div className="space-y-1 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</p>
+              <p>{customer.phone || "—"}</p>
+            </div>
+            <div className="md:col-span-2 space-y-1 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</p>
+              <p>{customer.address || "—"}</p>
+            </div>
+            <div className="md:col-span-2 space-y-1 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder</p>
+              <p className="break-all font-mono text-xs text-gray-600">
+                {dropboxPath || "Folder will be created on demand"}
+              </p>
+            </div>
           </div>
-          <div className="space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
-            <p>{customer.email || "—"}</p>
-          </div>
-          <div className="space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</p>
-            <p>{customer.phone || "—"}</p>
-          </div>
-          <div className="md:col-span-2 space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</p>
-            <p>{customer.address || "—"}</p>
-          </div>
-          <div className="md:col-span-2 space-y-1 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder</p>
-            <p className="break-all font-mono text-xs text-gray-600">
-              {dropboxPath || "Folder will be created on demand"}
-            </p>
-          </div>
-        </div>
+        )}
       </section>
 
       <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
