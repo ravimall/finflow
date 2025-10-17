@@ -1,3 +1,4 @@
+import { useContext } from "react";
 import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -6,7 +7,6 @@ import CustomerDetail from "./pages/CustomerDetail";
 import Loans from "./pages/Loans";
 import LoanDetail from "./pages/LoanDetail";
 import Documents from "./pages/Documents";
-import Navbar from "./components/Navbar";
 import Admin from "./pages/Admin";
 import Reports from "./pages/Reports";
 import AdminAuditLogs from "./pages/AdminAuditLogs";
@@ -18,15 +18,30 @@ import Settings from "./pages/Settings";
 import Profile from "./pages/Profile";
 import Preferences from "./pages/Preferences";
 import AdminConfig from "./pages/AdminConfig";
+import TopNav from "./components/TopNav";
+import { AuthContext } from "./context/AuthContext";
 
 function AppContent() {
   const location = useLocation();
-  const hideBottomNav = ["/", "/login", "/auth/callback"].includes(location.pathname);
+  const { user } = useContext(AuthContext);
+  const hiddenNavigationPaths = ["/", "/login", "/auth/callback"];
+  const shouldHideNavigation = hiddenNavigationPaths.includes(location.pathname);
+  const shouldShowNavigation = Boolean(user) && !shouldHideNavigation;
+  const mainPaddingBottom = shouldShowNavigation ? "pb-24" : "pb-8";
 
   return (
     <>
-      <Navbar />
-      <main className="pb-24 pt-4 sm:pt-6 lg:pt-8">
+      {shouldShowNavigation && (
+        <>
+          <div className="hidden md:block">
+            <TopNav />
+          </div>
+          <div className="md:hidden">
+            <BottomNav />
+          </div>
+        </>
+      )}
+      <main className={`${mainPaddingBottom} pt-4 sm:pt-6 lg:pt-8`}>
         <div className="mx-auto w-full max-w-[1200px] px-3 sm:px-4 md:px-6 lg:px-8">
           <Routes>
             <Route path="/" element={<Login />} />
@@ -146,7 +161,6 @@ function AppContent() {
           </Routes>
         </div>
       </main>
-      {!hideBottomNav && <BottomNav />}
     </>
   );
 }
