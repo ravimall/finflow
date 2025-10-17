@@ -8,9 +8,13 @@ import { useToast } from "../context/ToastContext.jsx";
 import { api } from "../lib/api.js";
 import CustomerCompactCard from "../components/CustomerCompactCard.jsx";
 
+const CUSTOMER_SWIPE_HINT_KEY = "finflow.customers.swipe-hint";
+
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [showSwipeHint, setShowSwipeHint] = useState(false);
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === "admin";
   const { showToast } = useToast();
@@ -20,18 +24,120 @@ export default function Customers() {
   const [statusFilter, setStatusFilter] = useState("all");
   const navigate = useNavigate();
 
-  const fetchCustomers = useCallback(() => {
-    setLoading(true);
-    api
-      .get("/api/customers")
-      .then((res) => setCustomers(res.data))
-      .catch(() => setCustomers([]))
-      .finally(() => setLoading(false));
+  const dismissSwipeHint = useCallback(() => {
+    setShowSwipeHint(false);
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage?.setItem(CUSTOMER_SWIPE_HINT_KEY, "hidden");
+      }
+    } catch (error) {
+      console.warn("Unable to persist swipe hint preference", error);
+    }
   }, []);
+
+  const fetchCustomers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [customersResult, loansResult, tasksResult] = await Promise.allSettled([
+        api.get("/api/customers"),
+        api.get("/api/loans"),
+        api.get("/api/tasks", {
+          params: {
+            status: "pending",
+            group_by: "customer",
+            page_size: 1,
+          },
+        }),
+      ]);
+
+      if (customersResult.status !== "fulfilled") {
+        throw customersResult.reason ?? new Error("Failed to load customers");
+      }
+
+      const customerData = Array.isArray(customersResult.value.data)
+        ? customersResult.value.data
+        : [];
+
+      const loansData =
+        loansResult.status === "fulfilled" && Array.isArray(loansResult.value.data)
+          ? loansResult.value.data
+          : [];
+
+      const latestLoanMap = new Map();
+      loansData.forEach((loan) => {
+        const rawId = loan?.customer?.id ?? loan?.customer_id;
+        if (!rawId) {
+          return;
+        }
+        const key = String(rawId);
+        const resolvedTimestamp = new Date(loan?.updated_at || loan?.created_at || 0).getTime();
+        const timestamp = Number.isNaN(resolvedTimestamp) ? 0 : resolvedTimestamp;
+        const existing = latestLoanMap.get(key);
+        if (!existing || timestamp > existing.timestamp) {
+          latestLoanMap.set(key, {
+            status: loan?.status ?? null,
+            timestamp,
+          });
+        }
+      });
+
+      let pendingTaskMap = {};
+      if (tasksResult.status === "fulfilled") {
+        const groups = tasksResult.value?.data?.groups ?? tasksResult.value?.data ?? [];
+        pendingTaskMap = groups.reduce((acc, group) => {
+          if (!group?.key) {
+            return acc;
+          }
+          const match = /^customer:(.+)$/.exec(group.key);
+          if (!match) {
+            return acc;
+          }
+          const count = typeof group.count === "number" ? group.count : 0;
+          acc[String(match[1])] = count;
+          return acc;
+        }, {});
+      }
+
+      const enriched = customerData.map((customer) => {
+        const key = String(customer?.id ?? customer?.customer_id ?? "");
+        const loanStatus = latestLoanMap.get(key)?.status ?? null;
+        const pendingTasks = pendingTaskMap[key] ?? 0;
+        return {
+          ...customer,
+          loan_status: loanStatus,
+          pending_tasks: pendingTasks,
+        };
+      });
+
+      setCustomers(enriched);
+    } catch (error) {
+      console.error("Failed to fetch customers", error);
+      showToast("error", "Unable to load customers. Please try again.");
+      setCustomers([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
 
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
+
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") {
+        setShowSwipeHint(true);
+        return;
+      }
+      const stored = window.localStorage?.getItem(CUSTOMER_SWIPE_HINT_KEY);
+      if (stored !== "hidden") {
+        setShowSwipeHint(true);
+      }
+    } catch (error) {
+      console.warn("Unable to read swipe hint preference", error);
+      setShowSwipeHint(true);
+    }
+  }, []);
 
   const handleCloseDeleteModal = useCallback(() => {
     setIsDeleteModalOpen(false);
@@ -103,27 +209,36 @@ export default function Customers() {
   const skeletonItems = useMemo(() => Array.from({ length: 6 }, (_, index) => index), []);
 
   return (
-    <div className="space-y-10 pb-24">
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
-        <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 md:text-2xl">Create customer</h2>
-            <p className="text-sm text-gray-500 md:text-base">
-              Collect the basics and assign an agent in one place.
-            </p>
-          </div>
-          {loading && <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>}
-        </header>
-        <CustomerForm onSuccess={fetchCustomers} />
-      </section>
-
-      <section className="mx-auto max-w-screen-md space-y-4">
+    <div className="relative min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-3xl px-4 pb-28 pt-4">
         <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold text-gray-900 md:text-3xl">Customers</h1>
-          {loading && <span className="text-sm text-gray-500">Loading customers…</span>}
+          <h1 className="text-2xl font-semibold text-gray-900">Customers</h1>
+          <p className="text-sm text-gray-500">Track loan progress and pending tasks at a glance.</p>
+          {loading && <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>}
         </div>
 
-        <div className="sticky top-0 z-10 -mx-4 space-y-3 bg-white/95 px-4 pt-2 pb-3 backdrop-blur supports-[backdrop-filter]:bg-white/80 sm:static sm:mx-0 sm:px-0">
+        {showForm && (
+          <div className="mt-4 rounded-lg bg-white p-4 shadow-md">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-gray-800">Add customer</h2>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="text-sm font-semibold text-blue-600 transition hover:text-blue-700"
+              >
+                Cancel
+              </button>
+            </div>
+            <CustomerForm
+              onSuccess={() => {
+                fetchCustomers();
+                setShowForm(false);
+              }}
+            />
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
           <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-sm">
             <FiSearch className="h-4 w-4 text-gray-400" aria-hidden="true" />
             <input
@@ -149,34 +264,54 @@ export default function Customers() {
           )}
         </div>
 
-        <div className="space-y-2">
+        {showSwipeHint && filteredCustomers.length > 0 && (
+          <p className="mt-4 text-center text-xs italic text-gray-400">
+            💡 Swipe left on a card to Edit or Delete
+          </p>
+        )}
+
+        <div className="mt-4 space-y-2 pb-8">
           {loading
             ? skeletonItems.map((item) => (
                 <div
                   key={item}
-                  className="h-16 animate-pulse rounded-xl border border-gray-100 bg-gray-100/60"
+                  className="h-16 animate-pulse rounded-lg bg-white/60 shadow-sm"
                 />
               ))
             : filteredCustomers.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-600 md:text-base">
+                <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-600">
                   {query || statusFilter !== "all"
                     ? "No customers match the current filters."
-                    : "No customers yet. Create your first record above."}
+                    : "No customers yet. Use the + button to add your first record."}
                 </p>
               ) : (
-                filteredCustomers.map((customer) => (
+                filteredCustomers.map((customer, index) => (
                   <CustomerCompactCard
                     key={customer.id}
                     customer={customer}
+                    index={index}
                     onPress={() => navigate(`/customers/${customer.id}`)}
                     onEdit={() => navigate(`/customers/${customer.id}`)}
                     onDelete={isAdmin ? () => openDeleteModal(customer.id) : undefined}
                     disableDelete={!isAdmin}
+                    onRevealActions={showSwipeHint ? dismissSwipeHint : undefined}
                   />
                 ))
               )}
         </div>
-      </section>
+      </div>
+
+      {!showForm && (
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="fixed bottom-20 right-5 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-3xl font-semibold text-white shadow-lg transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          aria-label="Add customer"
+        >
+          +
+        </button>
+      )}
+
       {isAdmin && (
         <CustomerDeleteModal
           open={isDeleteModalOpen}
