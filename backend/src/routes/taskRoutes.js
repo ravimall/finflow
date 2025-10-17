@@ -294,7 +294,7 @@ async function buildGroups(groupBy, whereClause) {
 
   if (groupBy === "due_week") {
     const weekLabelSql =
-      "CASE WHEN \"Task\".\"due_on\" IS NULL THEN 'unscheduled' ELSE to_char(\"Task\".\"due_on\", 'IYYY-""W""IW') END";
+      "CASE WHEN \"Task\".\"due_on\" IS NULL THEN 'unscheduled' ELSE to_char(\"Task\".\"due_on\", 'IYYY-\"W\"IW') END";
     const rows = await Task.findAll({
       where: whereClause,
       attributes: [
