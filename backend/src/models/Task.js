@@ -22,8 +22,20 @@ const Task = sequelize.define(
       allowNull: false,
     },
     status: {
-      type: DataTypes.ENUM("pending", "completed"),
+      type: DataTypes.ENUM(
+        "pending",
+        "waiting",
+        "in_progress",
+        "blocked",
+        "completed",
+        "cancelled"
+      ),
       defaultValue: "pending",
+    },
+    priority: {
+      type: DataTypes.ENUM("low", "medium", "high", "urgent"),
+      allowNull: false,
+      defaultValue: "medium",
     },
     due_on: {
       type: DataTypes.DATEONLY,
@@ -36,6 +48,16 @@ const Task = sequelize.define(
     notes: {
       type: DataTypes.TEXT,
       allowNull: true,
+    },
+    tags: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
+    },
+    risk_flags: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: [],
     },
     template_id: {
       type: DataTypes.UUID,
