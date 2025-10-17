@@ -300,6 +300,7 @@ function TemplateCard({
   onDeleteItem,
 }) {
   const [editing, setEditing] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState(() => ({
     name: template.name,
     description: template.description ?? "",
@@ -327,6 +328,16 @@ function TemplateCard({
       sort_order: template.items?.length ?? prev.sort_order ?? 0,
     }));
   }, [template.items?.length]);
+
+  useEffect(() => {
+    if (editing) {
+      setIsOpen(true);
+    }
+  }, [editing]);
+
+  const toggleOpen = () => {
+    setIsOpen((prev) => !prev);
+  };
 
   const handleTemplateSubmit = async (event) => {
     event.preventDefault();
@@ -446,8 +457,20 @@ function TemplateCard({
             </div>
           </form>
         ) : (
-          <div className="flex-1 space-y-2">
+          <button
+            type="button"
+            onClick={toggleOpen}
+            className="flex-1 space-y-2 text-left"
+            aria-expanded={isOpen}
+          >
             <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-xs font-semibold text-gray-600 ${
+                  isOpen ? "bg-gray-100" : "bg-white"
+                }`}
+              >
+                {isOpen ? "−" : "+"}
+              </span>
               <h3 className="text-lg font-semibold text-gray-900">{template.name}</h3>
               <span
                 className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
@@ -464,13 +487,16 @@ function TemplateCard({
             ) : (
               <p className="text-sm text-gray-500">No description provided.</p>
             )}
-          </div>
+          </button>
         )}
         <div className="flex flex-wrap gap-2">
           {!editing ? (
             <button
               type="button"
-              onClick={() => setEditing(true)}
+              onClick={() => {
+                setEditing(true);
+                setIsOpen(true);
+              }}
               className="inline-flex h-10 items-center justify-center rounded-full border border-blue-200 px-4 text-xs font-semibold uppercase tracking-wide text-blue-600 transition hover:bg-blue-50"
             >
               Edit details
@@ -495,114 +521,116 @@ function TemplateCard({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Checklist items
-        </h4>
-        <ul className="space-y-3">
-          {template.items?.length ? (
-            template.items.map((item) => (
-              <TemplateItemRow
-                key={item.id}
-                item={item}
-                onUpdate={(itemId, payload) => onUpdateItem(template.id, itemId, payload)}
-                onDelete={(itemId) => onDeleteItem(template.id, itemId)}
-              />
-            ))
-          ) : (
-            <li className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-              No checklist items yet.
-            </li>
-          )}
-        </ul>
+      {isOpen ? (
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+            Checklist items
+          </h4>
+          <ul className="space-y-3">
+            {template.items?.length ? (
+              template.items.map((item) => (
+                <TemplateItemRow
+                  key={item.id}
+                  item={item}
+                  onUpdate={(itemId, payload) => onUpdateItem(template.id, itemId, payload)}
+                  onDelete={(itemId) => onDeleteItem(template.id, itemId)}
+                />
+              ))
+            ) : (
+              <li className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
+                No checklist items yet.
+              </li>
+            )}
+          </ul>
 
-        <form onSubmit={handleAddItem} className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4">
-          <h5 className="mb-3 text-sm font-semibold text-gray-700">Add checklist item</h5>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm text-gray-700">
+          <form onSubmit={handleAddItem} className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4">
+            <h5 className="mb-3 text-sm font-semibold text-gray-700">Add checklist item</h5>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Title
+                </span>
+                <input
+                  value={itemForm.title}
+                  onChange={(event) =>
+                    setItemForm((prev) => ({ ...prev, title: event.target.value }))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Due in (days)
+                </span>
+                <input
+                  type="number"
+                  value={itemForm.offset_days}
+                  onChange={(event) =>
+                    setItemForm((prev) => ({
+                      ...prev,
+                      offset_days: event.target.value,
+                    }))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Default assignee
+                </span>
+                <select
+                  value={itemForm.default_assignee_role}
+                  onChange={(event) =>
+                    setItemForm((prev) => ({
+                      ...prev,
+                      default_assignee_role: event.target.value,
+                    }))
+                  }
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Keep assignee chosen when applying</option>
+                  <option value="admin">Assign to Admin</option>
+                  <option value="agent">Assign to Customer's Agent</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-700">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  Sort order
+                </span>
+                <input
+                  type="number"
+                  value={itemForm.sort_order}
+                  onChange={(event) =>
+                    setItemForm((prev) => ({ ...prev, sort_order: event.target.value }))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+            </div>
+            <label className="mt-3 flex flex-col gap-1 text-sm text-gray-700">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Title
+                Notes (optional)
               </span>
-              <input
-                value={itemForm.title}
+              <textarea
+                value={itemForm.notes}
                 onChange={(event) =>
-                  setItemForm((prev) => ({ ...prev, title: event.target.value }))
+                  setItemForm((prev) => ({ ...prev, notes: event.target.value }))
                 }
+                rows={3}
                 className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-700">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Due in (days)
-              </span>
-              <input
-                type="number"
-                value={itemForm.offset_days}
-                onChange={(event) =>
-                  setItemForm((prev) => ({
-                    ...prev,
-                    offset_days: event.target.value,
-                  }))
-                }
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-700">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Default assignee
-              </span>
-              <select
-                value={itemForm.default_assignee_role}
-                onChange={(event) =>
-                  setItemForm((prev) => ({
-                    ...prev,
-                    default_assignee_role: event.target.value,
-                  }))
-                }
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="submit"
+                className="inline-flex h-10 items-center justify-center rounded-full bg-blue-600 px-4 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-blue-700"
               >
-                <option value="">Keep assignee chosen when applying</option>
-                <option value="admin">Assign to Admin</option>
-                <option value="agent">Assign to Customer's Agent</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1 text-sm text-gray-700">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Sort order
-              </span>
-              <input
-                type="number"
-                value={itemForm.sort_order}
-                onChange={(event) =>
-                  setItemForm((prev) => ({ ...prev, sort_order: event.target.value }))
-                }
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </label>
-          </div>
-          <label className="mt-3 flex flex-col gap-1 text-sm text-gray-700">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Notes (optional)
-            </span>
-            <textarea
-              value={itemForm.notes}
-              onChange={(event) =>
-                setItemForm((prev) => ({ ...prev, notes: event.target.value }))
-              }
-              rows={3}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </label>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="submit"
-              className="inline-flex h-10 items-center justify-center rounded-full bg-blue-600 px-4 text-xs font-semibold uppercase tracking-wide text-white transition hover:bg-blue-700"
-            >
-              Add item
-            </button>
-          </div>
-        </form>
-      </div>
+                Add item
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
