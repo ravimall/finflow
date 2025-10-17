@@ -9,12 +9,15 @@ import Documents from "./pages/Documents";
 import Navbar from "./components/Navbar";
 import Admin from "./pages/Admin";
 import Reports from "./pages/Reports";
-import AuditLogs from "./pages/AuditLogs";
+import AdminAuditLogs from "./pages/AdminAuditLogs";
 import MyTasks from "./pages/MyTasks";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AuthCallback from "./pages/AuthCallback";
 import BottomNav from "./components/BottomNav";
 import Settings from "./pages/Settings";
+import Profile from "./pages/Profile";
+import Preferences from "./pages/Preferences";
+import AdminConfig from "./pages/AdminConfig";
 
 function AppContent() {
   const location = useLocation();
@@ -85,6 +88,22 @@ function AppContent() {
               }
             />
             <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/preferences"
+              element={
+                <ProtectedRoute>
+                  <Preferences />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin"
               element={
                 <ProtectedRoute role="admin">
@@ -101,10 +120,18 @@ function AppContent() {
               }
             />
             <Route
-              path="/audit-logs"
+              path="/admin/config"
               element={
                 <ProtectedRoute role="admin">
-                  <AuditLogs />
+                  <AdminConfig />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/audit-logs"
+              element={
+                <ProtectedRoute role="admin">
+                  <AdminAuditLogs />
                 </ProtectedRoute>
               }
             />
