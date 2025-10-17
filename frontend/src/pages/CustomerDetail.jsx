@@ -1,12 +1,20 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { FiBell, FiCheckCircle, FiEdit3, FiPlus, FiTrash2 } from "react-icons/fi";
+import { FiArrowLeft, FiEdit3, FiTrash2 } from "react-icons/fi";
+
 import LoanForm from "../components/LoanForm";
 import LoanDrawer from "../components/LoanDrawer";
-import { AuthContext } from "../context/AuthContext";
-import { api } from "../lib/api.js";
+import CustomerTabs from "../components/CustomerTabs";
+import FloatingAddButton from "../components/FloatingAddButton";
+import TaskList from "../components/TaskList";
+import NoteList from "../components/NoteList";
+import LoanList from "../components/LoanList";
+import DocumentList from "../components/DocumentList";
 import CustomerDeleteModal from "../components/CustomerDeleteModal.jsx";
+import { AuthContext } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext.jsx";
+import { api } from "../lib/api.js";
+import { uploadCustomerDocuments } from "../services/documents";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -33,12 +41,29 @@ function toInputDate(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function statusBadgeClasses(status) {
+  if (!status) return "bg-gray-100 text-gray-700";
+  const normalized = status.toLowerCase();
+  if (["ok", "approved", "active"].includes(normalized)) {
+    return "bg-emerald-100 text-emerald-700";
+  }
+  if (["failed", "inactive", "closed"].includes(normalized)) {
+    return "bg-red-100 text-red-700";
+  }
+  if (["pending", "processing", "new"].includes(normalized)) {
+    return "bg-yellow-100 text-yellow-700";
+  }
+  return "bg-blue-100 text-blue-700";
+}
+
 export default function CustomerDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === "admin";
   const { showToast } = useToast();
+
+  const [activeTab, setActiveTab] = useState("tasks");
 
   const [customer, setCustomer] = useState(null);
   const [dropboxLink, setDropboxLink] = useState(null);
@@ -64,12 +89,13 @@ export default function CustomerDetail() {
   const [notes, setNotes] = useState([]);
   const [noteInput, setNoteInput] = useState("");
   const [noteError, setNoteError] = useState("");
-  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
   const [notesRefreshing, setNotesRefreshing] = useState(false);
   const [notesFetchError, setNotesFetchError] = useState("");
   const [tasks, setTasks] = useState([]);
   const [taskLoading, setTaskLoading] = useState(false);
-  const [taskError, setTaskError] = useState("");
+  const [taskListError, setTaskListError] = useState("");
+  const [taskFormError, setTaskFormError] = useState("");
   const [taskSaving, setTaskSaving] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState(null);
   const [taskForm, setTaskForm] = useState({
@@ -79,6 +105,7 @@ export default function CustomerDetail() {
     notes: "",
   });
   const [editingTaskId, setEditingTaskId] = useState(null);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [templateLoading, setTemplateLoading] = useState(false);
@@ -90,15 +117,33 @@ export default function CustomerDetail() {
   const [templateMessage, setTemplateMessage] = useState("");
   const [loans, setLoans] = useState([]);
   const [loanDrawerId, setLoanDrawerId] = useState(null);
-  const [showLoanForm, setShowLoanForm] = useState(false);
+  const [loanModalOpen, setLoanModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
+  const [documentError, setDocumentError] = useState("");
+  const [documentSuccess, setDocumentSuccess] = useState("");
+  const [uploadingDocuments, setUploadingDocuments] = useState(false);
+  const documentInputRef = useRef(null);
+
   const customerRecordId = customer?.id ?? null;
   const dropboxProvisioningStatus =
     dropboxLink?.customer?.dropboxProvisioningStatus ??
     customer?.dropboxProvisioningStatus ??
     "pending";
+
+  const tabs = useMemo(
+    () => [
+      { id: "tasks", label: "Tasks" },
+      { id: "notes", label: "Notes" },
+      { id: "loans", label: "Loans" },
+      { id: "documents", label: "Documents" },
+      { id: "details", label: "Details" },
+    ],
+    []
+  );
 
   const fetchDropboxLink = useCallback(async () => {
     try {
@@ -120,9 +165,7 @@ export default function CustomerDetail() {
   useEffect(() => {
     api
       .get("/api/config/statuses", { params: { type: "customer" } })
-      .then((response) =>
-        setStatuses(Array.isArray(response.data) ? response.data : [])
-      )
+      .then((response) => setStatuses(Array.isArray(response.data) ? response.data : []))
       .catch(() => setStatuses([]));
   }, []);
 
@@ -155,13 +198,13 @@ export default function CustomerDetail() {
 
   const refreshTasks = useCallback(async () => {
     setTaskLoading(true);
-    setTaskError("");
+    setTaskListError("");
     try {
       const response = await api.get(`/api/customers/${id}/tasks`);
       setTasks(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       const message = err.response?.data?.error || err.message || "Unable to load tasks";
-      setTaskError(message);
+      setTaskListError(message);
       setTasks([]);
     } finally {
       setTaskLoading(false);
@@ -214,16 +257,13 @@ export default function CustomerDetail() {
       address: customer.address || "",
       flat_no: customer.flat_no || "",
       dropboxFolderPath:
-        dropboxLink?.customer?.dropboxFolderPath ??
-        customer.dropboxFolderPath ??
-        "",
-      primary_agent_id: customer.primary_agent_id
-        ? String(customer.primary_agent_id)
-        : "",
+        dropboxLink?.customer?.dropboxFolderPath ?? customer.dropboxFolderPath ?? "",
+      primary_agent_id: customer.primary_agent_id ? String(customer.primary_agent_id) : "",
     });
     setDetailsError("");
     setDetailsSuccess("");
     setEditingDetails(true);
+    setActiveTab("details");
   }, [customer, dropboxLink]);
 
   const cancelDetailsEditing = useCallback(() => {
@@ -271,9 +311,7 @@ export default function CustomerDetail() {
 
       if (isAdmin) {
         payload.primary_agent_id =
-          detailsForm.primary_agent_id === ""
-            ? ""
-            : Number(detailsForm.primary_agent_id);
+          detailsForm.primary_agent_id === "" ? "" : Number(detailsForm.primary_agent_id);
       }
 
       const response = await api.patch(`/api/customers/${customer.id}`, payload);
@@ -393,34 +431,115 @@ export default function CustomerDetail() {
     }
   }, [fetchTemplates, templateModalOpen]);
 
-  const addNote = async () => {
+  const openTaskModal = useCallback(() => {
+    setTaskForm({ title: "", due_on: "", remind_on: "", notes: "" });
+    setEditingTaskId(null);
+    setTaskFormError("");
+    setTaskModalOpen(true);
+  }, []);
+
+  const handleTaskChange = (event) => {
+    const { name, value } = event.target;
+    setTaskForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const submitTask = async (event) => {
+    event.preventDefault();
+    if (!taskForm.title.trim()) {
+      setTaskFormError("Title is required");
+      return;
+    }
+    setTaskSaving(true);
+    setTaskFormError("");
+    try {
+      if (editingTaskId) {
+        await api.patch(`/api/tasks/${editingTaskId}`, {
+          title: taskForm.title.trim(),
+          notes: taskForm.notes || "",
+          due_on: taskForm.due_on ? taskForm.due_on : null,
+          remind_on: taskForm.remind_on ? taskForm.remind_on : null,
+        });
+      } else {
+        const payload = {
+          title: taskForm.title.trim(),
+        };
+        if (taskForm.notes.trim()) {
+          payload.notes = taskForm.notes.trim();
+        }
+        if (taskForm.due_on) {
+          payload.due_on = taskForm.due_on;
+        }
+        if (taskForm.remind_on) {
+          payload.remind_on = taskForm.remind_on;
+        }
+        await api.post(`/api/customers/${id}/tasks`, payload);
+      }
+      setTaskModalOpen(false);
+      setTaskForm({ title: "", due_on: "", remind_on: "", notes: "" });
+      setEditingTaskId(null);
+      await refreshTasks();
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to save task";
+      setTaskFormError(message);
+    } finally {
+      setTaskSaving(false);
+    }
+  };
+
+  const handleEditTask = (task) => {
+    setEditingTaskId(task.id);
+    setTaskForm({
+      title: task.title || "",
+      due_on: toInputDate(task.due_on),
+      remind_on: toInputDate(task.remind_on),
+      notes: task.notes || "",
+    });
+    setTaskFormError("");
+    setTaskModalOpen(true);
+  };
+
+  const cancelTaskEditing = () => {
+    setTaskModalOpen(false);
+    setEditingTaskId(null);
+    setTaskForm({ title: "", due_on: "", remind_on: "", notes: "" });
+    setTaskFormError("");
+  };
+
+  const markTaskCompleted = async (taskId) => {
+    setCompletingTaskId(taskId);
+    setTaskFormError("");
+    try {
+      await api.patch(`/api/tasks/${taskId}`, { status: "completed" });
+      await refreshTasks();
+    } catch (err) {
+      const message = err.response?.data?.error || err.message || "Unable to complete task";
+      showToast("error", message);
+    } finally {
+      setCompletingTaskId(null);
+    }
+  };
+
+  const addNote = async (event) => {
+    event.preventDefault();
     if (!noteInput.trim()) {
       setNoteError("Note is required");
       return;
     }
-    setNotesLoading(true);
+    setNotesSaving(true);
     setNoteError("");
     setNotesFetchError("");
     try {
       const response = await api.post(`/api/customers/${id}/notes`, { note: noteInput.trim() });
       setNotes((prev) => [response.data, ...prev]);
       setNoteInput("");
+      setNoteModalOpen(false);
     } catch (err) {
       const message = err.response?.data?.error || err.message || "Unable to save note";
       setNoteError(message);
     } finally {
-      setNotesLoading(false);
+      setNotesSaving(false);
     }
   };
-
-  const notesView = useMemo(() => {
-    return notes.map((item) => ({
-      id: item.id,
-      author: item.author?.name || item.author?.email || "Unknown",
-      timestamp: formatDate(item.created_at),
-      note: item.note,
-    }));
-  }, [notes]);
 
   const handleRetryNotes = useCallback(() => {
     refreshNotes();
@@ -455,9 +574,10 @@ export default function CustomerDetail() {
       aging: typeof loan.aging_days === "number" ? loan.aging_days : 0,
       applied: formatNumber(loan.applied_amount),
       approved: formatNumber(loan.approved_amount),
-      roi: loan.rate_of_interest === null || typeof loan.rate_of_interest === "undefined"
-        ? "—"
-        : `${loan.rate_of_interest}%`,
+      roi:
+        loan.rate_of_interest === null || typeof loan.rate_of_interest === "undefined"
+          ? "—"
+          : `${loan.rate_of_interest}%`,
       updated: formatDate(loan.updated_at || loan.created_at),
     }));
   }, [loans]);
@@ -466,729 +586,663 @@ export default function CustomerDetail() {
     navigate(`/documents?customer_id=${id}`);
   };
 
-  const resetTaskForm = useCallback(() => {
-    setTaskForm({ title: "", due_on: "", remind_on: "", notes: "" });
-    setEditingTaskId(null);
-    setTaskError("");
-  }, []);
-
-  const handleTaskChange = (event) => {
-    const { name, value } = event.target;
-    setTaskForm((prev) => ({ ...prev, [name]: value }));
+  const handleFileChange = (event) => {
+    setDocumentError("");
+    setDocumentSuccess("");
+    if (event.target.files && !event.target.files.length) {
+      setDocumentError("Select at least one file");
+    }
   };
 
-  const submitTask = async (event) => {
+  const handleUploadDocuments = async (event) => {
     event.preventDefault();
-    if (!taskForm.title.trim()) {
-      setTaskError("Title is required");
+    const files = documentInputRef.current?.files ? Array.from(documentInputRef.current.files) : [];
+    if (!files.length) {
+      setDocumentError("Select at least one file");
       return;
     }
-    setTaskSaving(true);
-    setTaskError("");
+    setUploadingDocuments(true);
+    setDocumentError("");
     try {
-      if (editingTaskId) {
-        await api.patch(`/api/tasks/${editingTaskId}`, {
-          title: taskForm.title.trim(),
-          notes: taskForm.notes || "",
-          due_on: taskForm.due_on ? taskForm.due_on : null,
-          remind_on: taskForm.remind_on ? taskForm.remind_on : null,
-        });
-      } else {
-        const payload = {
-          title: taskForm.title.trim(),
-        };
-        if (taskForm.notes.trim()) {
-          payload.notes = taskForm.notes.trim();
-        }
-        if (taskForm.due_on) {
-          payload.due_on = taskForm.due_on;
-        }
-        if (taskForm.remind_on) {
-          payload.remind_on = taskForm.remind_on;
-        }
-        await api.post(`/api/customers/${id}/tasks`, payload);
+      await uploadCustomerDocuments(customer.id, files, {
+        path:
+          dropboxLink?.customer?.dropboxFolderPath || customer.dropboxFolderPath || undefined,
+      });
+      setDocumentSuccess("Upload complete");
+      setDocumentModalOpen(false);
+      if (documentInputRef.current) {
+        documentInputRef.current.value = "";
       }
-      resetTaskForm();
-      await refreshTasks();
+      showToast("success", "Upload complete");
+      await fetchDropboxLink();
     } catch (err) {
-      const message = err.response?.data?.error || err.message || "Unable to save task";
-      setTaskError(message);
+      const message = err.response?.data?.error || err.message || "Upload failed";
+      setDocumentError(message);
     } finally {
-      setTaskSaving(false);
+      setUploadingDocuments(false);
     }
   };
 
-  const handleEditTask = (task) => {
-    setEditingTaskId(task.id);
-    setTaskForm({
-      title: task.title || "",
-      due_on: toInputDate(task.due_on),
-      remind_on: toInputDate(task.remind_on),
-      notes: task.notes || "",
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const cancelTaskEditing = () => {
-    resetTaskForm();
-  };
-
-  const markTaskCompleted = async (taskId) => {
-    setCompletingTaskId(taskId);
-    setTaskError("");
-    try {
-      await api.patch(`/api/tasks/${taskId}`, { status: "completed" });
-      await refreshTasks();
-    } catch (err) {
-      const message = err.response?.data?.error || err.message || "Unable to complete task";
-      setTaskError(message);
-    } finally {
-      setCompletingTaskId(null);
+  const handleFabClick = () => {
+    switch (activeTab) {
+      case "tasks":
+        openTaskModal();
+        break;
+      case "notes":
+        setNoteInput("");
+        setNoteError("");
+        setNoteModalOpen(true);
+        break;
+      case "loans":
+        setLoanModalOpen(true);
+        break;
+      case "documents":
+        setDocumentError("");
+        setDocumentSuccess("");
+        setDocumentModalOpen(true);
+        break;
+      case "details":
+        if (canEditCustomer) {
+          beginEditingDetails();
+        }
+        break;
+      default:
+        break;
     }
   };
 
-  const handleOpenTemplateModal = () => {
-    setTemplateModalOpen(true);
-    setTemplateSelection({ templateId: "", assigneeMode: "default" });
-  };
-
-  const handleCloseTemplateModal = () => {
-    setTemplateModalOpen(false);
-  };
-
-  const applyTemplate = async (event) => {
-    event.preventDefault();
-    if (!templateSelection.templateId) {
-      setTemplateError("Select a template to apply");
-      return;
-    }
-
-    setTemplateLoading(true);
-    setTemplateError("");
-    setTemplateMessage("");
-
-    try {
-      const payload = { template_id: templateSelection.templateId };
-      if (templateSelection.assigneeMode === "self" && user?.id) {
-        payload.assignee_id = user.id;
-      }
-      const response = await api.post(
-        `/api/customers/${id}/tasks/templates/apply`,
-        payload
+  const dropboxPath = dropboxLink?.customer?.dropboxFolderPath || customer?.dropboxFolderPath;
+  const dropboxStatus = dropboxProvisioningStatus.toLowerCase();
+  const dropboxLastError =
+    dropboxLink?.customer?.dropboxLastError ?? customer?.dropboxLastError ?? "";
+  const dropboxBannerMessage = useMemo(() => {
+    if (dropboxStatus === "failed") {
+      return (
+        dropboxLastError || "Dropbox setup failed. Retry the provisioning to refresh access."
       );
-      const created = Array.isArray(response.data?.created_task_ids)
-        ? response.data.created_task_ids.length
-        : 0;
-      const skipped = Array.isArray(response.data?.skipped_titles)
-        ? response.data.skipped_titles.length
-        : 0;
-      setTemplateMessage(
-        `Created ${created} task${created === 1 ? "" : "s"}; skipped ${skipped}.`
-      );
-      await refreshTasks();
-    } catch (err) {
-      const message = err.response?.data?.error || err.message || "Unable to apply template";
-      setTemplateError(message);
-    } finally {
-      setTemplateLoading(false);
     }
-  };
+    if (dropboxStatus === "pending") {
+      return "Dropbox link is being provisioned. You can retry if needed.";
+    }
+    if (dropboxStatus === "ok") {
+      return "Dropbox folder is ready.";
+    }
+    return "Dropbox link is setting up.";
+  }, [dropboxLastError, dropboxStatus]);
 
   if (loading) {
-    return <p>Loading customer…</p>;
+    return <p className="px-4 py-8 text-sm text-gray-600">Loading customer…</p>;
   }
 
   if (error) {
-    return <p className="text-red-600">{error}</p>;
+    return <p className="px-4 py-8 text-sm text-red-600">{error}</p>;
   }
 
   if (!customer) {
-    return <p className="text-sm text-gray-600">Customer not found.</p>;
+    return <p className="px-4 py-8 text-sm text-gray-600">Customer not found.</p>;
   }
 
-  const dropboxPath = dropboxLink?.customer?.dropboxFolderPath || customer.dropboxFolderPath;
-  const dropboxStatus = dropboxProvisioningStatus.toLowerCase();
-  const isDropboxReady = dropboxStatus === "ok";
-  const dropboxLastError =
-    dropboxLink?.customer?.dropboxLastError ?? customer.dropboxLastError ?? "";
-  const shouldShowDropboxBanner = dropboxStatus !== "ok";
-  let dropboxBannerMessage = "Dropbox link is setting up.";
-  if (dropboxStatus === "failed") {
-    dropboxBannerMessage = dropboxLastError
-      ? `Dropbox setup failed: ${dropboxLastError}`
-      : "Dropbox setup failed. Retry the provisioning to refresh access.";
-  } else if (dropboxStatus === "pending") {
-    dropboxBannerMessage = "Dropbox link is being provisioned. You can retry if needed.";
-  }
-  const dropboxBannerClasses =
-    dropboxStatus === "failed"
-      ? "border-red-200 bg-red-50 text-red-800"
-      : "border-amber-200 bg-amber-50 text-amber-800";
-  const shouldShowRetryButton = dropboxStatus !== "ok";
+  const notesView = notes.map((item) => ({
+    id: item.id,
+    author: item.author?.name || item.author?.email || "Unknown",
+    timestamp: formatDate(item.created_at),
+    body: item.note,
+  }));
+
+  const headerStatus = customer.status || "Pending";
+
+  const quickActions = [
+    { id: "tasks", label: "+ Task", onClick: openTaskModal },
+    { id: "notes", label: "+ Note", onClick: () => setNoteModalOpen(true) },
+    { id: "loans", label: "+ Loan", onClick: () => setLoanModalOpen(true) },
+    { id: "documents", label: "+ File", onClick: () => setDocumentModalOpen(true) },
+  ];
 
   return (
-    <div className="space-y-8 pb-6">
-      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">{customer.name}</h1>
-            <p className="font-mono text-xs text-gray-500">{customer.customer_id}</p>
-            <p className="text-xs text-gray-500 break-all">
-              Dropbox folder: {dropboxPath || "Not yet created"}
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {canEditCustomer && !editingDetails && (
-              <button
-                type="button"
-                onClick={beginEditingDetails}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400 sm:w-auto"
-              >
-                <FiEdit3 aria-hidden="true" /> Edit details
-              </button>
-            )}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={handleOpenDeleteModal}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-red-200 px-4 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 sm:w-auto"
-              >
-                <FiTrash2 aria-hidden="true" /> Delete customer
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={openDocuments}
-              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:w-auto"
+    <div className="min-h-screen bg-slate-50 pb-24">
+      <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex max-w-screen-md items-center gap-3 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-300 text-gray-600 transition hover:border-gray-400 hover:text-gray-900"
+            aria-label="Go back"
+          >
+            <FiArrowLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <div className="flex flex-1 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                {customer.customer_id}
+              </p>
+              <h1 className="truncate text-lg font-semibold text-gray-900">{customer.name}</h1>
+            </div>
+            <span
+              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(
+                headerStatus
+              )}`}
             >
-              📁 View Files
-            </button>
+              {headerStatus}
+            </span>
           </div>
-        </header>
+        </div>
+        <div className="border-t border-gray-100 bg-white">
+          <div className="mx-auto flex max-w-screen-md items-center gap-2 overflow-x-auto px-4 py-2">
+            {quickActions.map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                onClick={action.onClick}
+                className="inline-flex flex-shrink-0 items-center rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-900"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
 
-        {shouldShowDropboxBanner && (
-          <div className={`rounded-xl border px-4 py-3 text-sm ${dropboxBannerClasses}`}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="flex-1">{dropboxBannerMessage}</p>
-              {shouldShowRetryButton && (
+      <CustomerTabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+
+      <main className="mx-auto mt-4 flex max-w-screen-md flex-col gap-6 px-4">
+        {activeTab === "tasks" && (
+          <section className="space-y-3">
+            <div className="p-3 rounded-lg bg-white text-sm shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-gray-900">Tasks</h2>
                 <button
                   type="button"
-                  onClick={retryDropboxProvisioning}
-                  disabled={dropboxActionLoading}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-current px-4 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-70"
+                  onClick={() => setTemplateModalOpen(true)}
+                  className="inline-flex items-center rounded-full border border-blue-300 px-3 py-1 text-xs font-semibold text-blue-700 transition hover:border-blue-400 hover:bg-blue-50"
                 >
-                  {dropboxActionLoading ? "Retrying…" : "Retry Dropbox setup"}
+                  Apply template
                 </button>
-              )}
-            </div>
-            {dropboxRetryMessage && (
-              <p className="mt-2 text-xs font-medium text-green-700">{dropboxRetryMessage}</p>
-            )}
-            {dropboxRetryError && (
-              <p className="mt-2 text-xs font-medium text-red-700">{dropboxRetryError}</p>
-            )}
-          </div>
-        )}
-
-        {detailsSuccess && !editingDetails && (
-          <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
-            {detailsSuccess}
-          </p>
-        )}
-
-        {editingDetails ? (
-          <form onSubmit={submitDetails} className="space-y-4">
-            {detailsError && <p className="text-sm text-red-600">{detailsError}</p>}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Name</span>
-                <input
-                  name="name"
-                  value={detailsForm.name}
-                  onChange={handleDetailsChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</span>
-                <select
-                  name="status"
-                  value={detailsForm.status}
-                  onChange={handleDetailsChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={!statuses.length}
-                >
-                  {statuses.length === 0 && (
-                    <option value={detailsForm.status || ""}>
-                      {detailsForm.status || "Loading statuses…"}
-                    </option>
-                  )}
-                  {statuses.map((status) => (
-                    <option key={status.id} value={status.name}>
-                      {status.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</span>
-                <input
-                  name="phone"
-                  value={detailsForm.phone}
-                  onChange={handleDetailsChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</span>
-                <input
-                  name="email"
-                  type="email"
-                  value={detailsForm.email}
-                  onChange={handleDetailsChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</span>
-                <input
-                  name="flat_no"
-                  value={detailsForm.flat_no}
-                  onChange={handleDetailsChange}
-                  maxLength={50}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
-              <label className="flex flex-col gap-1 sm:col-span-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</span>
-                <textarea
-                  name="address"
-                  rows={3}
-                  value={detailsForm.address}
-                  onChange={handleDetailsChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
-              <label className="flex flex-col gap-1 sm:col-span-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder path</span>
-                <input
-                  name="dropboxFolderPath"
-                  value={detailsForm.dropboxFolderPath}
-                  onChange={handleDetailsChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="/Apps/FinFlow/customer-folder"
-                />
-              </label>
-              {isAdmin && (
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</span>
-                  <select
-                    name="primary_agent_id"
-                    value={detailsForm.primary_agent_id}
-                    onChange={handleDetailsChange}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Unassigned</option>
-                    {agents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>
-                        {agent.name || agent.email}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <button
-                type="submit"
-                disabled={detailsSaving}
-                className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-              >
-                {detailsSaving ? "Saving…" : "Save changes"}
-              </button>
-              <button
-                type="button"
-                onClick={cancelDetailsEditing}
-                disabled={detailsSaving}
-                className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
-              <p className="text-base text-gray-900">{customer.status}</p>
-            </div>
-            <div className="space-y-1 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</p>
-              <p className="text-base text-gray-900">{customer.flat_no || "—"}</p>
-            </div>
-            {isAdmin && (
-              <div className="space-y-1 text-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</p>
-                <p className="text-base text-gray-900">
-                  {customer.primaryAgent?.name || customer.primaryAgent?.email || "Unassigned"}
-                </p>
               </div>
-            )}
-            <div className="space-y-1 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
-              <p>{customer.email || "—"}</p>
-            </div>
-            <div className="space-y-1 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</p>
-              <p>{customer.phone || "—"}</p>
-            </div>
-            <div className="md:col-span-2 space-y-1 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</p>
-              <p>{customer.address || "—"}</p>
-            </div>
-            <div className="md:col-span-2 space-y-1 text-sm">
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder</p>
-              <p className="break-all font-mono text-xs text-gray-600">
-                {dropboxPath || "Folder will be created on demand"}
+              <p className="mt-1 text-xs text-gray-500">
+                Track every follow-up in a compact view. Use the + button to add a new task.
               </p>
             </div>
-          </div>
+            <TaskList
+              tasks={tasks}
+              loading={taskLoading}
+              error={taskListError}
+              onRetry={refreshTasks}
+              onEdit={handleEditTask}
+              onComplete={markTaskCompleted}
+              completingTaskId={completingTaskId}
+              formatDate={formatDate}
+            />
+          </section>
         )}
-      </section>
 
-      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">Notes</h2>
-        </header>
-        <div className="space-y-2">
-          <textarea
-            value={noteInput}
-            onChange={(event) => setNoteInput(event.target.value)}
-            rows={3}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Add a note for this customer"
-          />
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <button
-              type="button"
-              onClick={addNote}
-              disabled={notesLoading}
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              {notesLoading ? "Saving…" : "Add Note"}
-            </button>
-            {noteError && <span className="text-xs text-red-600">{noteError}</span>}
-          </div>
-        </div>
-        <div className="space-y-3">
-          {notesRefreshing ? (
-            <div className="space-y-2">
-              <div className="h-20 animate-pulse rounded-2xl bg-gray-100" />
-              <div className="h-16 animate-pulse rounded-2xl bg-gray-100" />
+        {activeTab === "notes" && (
+          <section className="space-y-3">
+            <div className="p-3 rounded-lg bg-white text-sm shadow-sm">
+              <h2 className="text-base font-semibold text-gray-900">Notes</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Leave quick context for yourself or teammates. Recent notes appear first.
+              </p>
             </div>
-          ) : notesFetchError ? (
-            <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              <p>{notesFetchError}</p>
-              <div>
-                <button
-                  type="button"
-                  onClick={handleRetryNotes}
-                  disabled={notesRefreshing}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-current px-4 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Retry loading notes
-                </button>
+            <NoteList
+              notes={notesView}
+              loading={notesRefreshing}
+              error={notesFetchError}
+              onRetry={handleRetryNotes}
+            />
+          </section>
+        )}
+
+        {activeTab === "loans" && (
+          <section className="space-y-3">
+            <div className="p-3 rounded-lg bg-white text-sm shadow-sm">
+              <h2 className="text-base font-semibold text-gray-900">Loans</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Tap any loan to view details or update its status.
+              </p>
+            </div>
+            <LoanList loans={loansView} onSelect={setLoanDrawerId} />
+          </section>
+        )}
+
+        {activeTab === "documents" && (
+          <section className="space-y-3">
+            <div className="p-3 rounded-lg bg-white text-sm shadow-sm">
+              <h2 className="text-base font-semibold text-gray-900">Documents</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Manage uploads without leaving the customer view. Use the + button to upload files.
+              </p>
+            </div>
+            <DocumentList
+              path={dropboxPath || ""}
+              status={dropboxProvisioningStatus}
+              message={dropboxRetryError || dropboxRetryMessage || dropboxBannerMessage}
+              onOpenExplorer={openDocuments}
+              onRetry={dropboxStatus === "ok" ? undefined : retryDropboxProvisioning}
+              retrying={dropboxActionLoading}
+            />
+          </section>
+        )}
+
+        {activeTab === "details" && (
+          <section className="space-y-3">
+            <div className="p-3 rounded-lg bg-white text-sm shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-gray-900">Customer Details</h2>
+                  <p className="mt-1 text-xs text-gray-500">Review and edit contact information.</p>
+                </div>
+                {canEditCustomer && !editingDetails && (
+                  <button
+                    type="button"
+                    onClick={beginEditingDetails}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                  >
+                    <FiEdit3 className="h-4 w-4" aria-hidden="true" /> Edit
+                  </button>
+                )}
               </div>
             </div>
-          ) : notesView.length === 0 ? (
-            <p className="text-sm text-gray-500">No notes yet.</p>
-          ) : (
-            notesView.map((item) => (
-              <article key={item.id} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-                <header className="flex items-center justify-between text-xs text-gray-500">
-                  <span className="font-medium text-gray-700">{item.author}</span>
-                  <time>{item.timestamp}</time>
-                </header>
-                <p className="mt-2 text-sm text-gray-700 whitespace-pre-line">{item.note}</p>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-
-      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Tasks</h2>
-            <p className="text-sm text-gray-500">Track follow-ups and reminders.</p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handleOpenTemplateModal}
-              className="inline-flex h-10 items-center gap-2 rounded-full border border-blue-600 px-4 text-sm font-semibold text-blue-600 transition hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-            >
-              <FiPlus aria-hidden="true" />
-              Apply Template
-            </button>
-          </div>
-        </header>
-
-        <form onSubmit={submitTask} className="space-y-3 rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="task-title" className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                Title
-              </label>
-              <input
-                id="task-title"
-                name="title"
-                value={taskForm.title}
-                onChange={handleTaskChange}
-                placeholder="Collect income proof"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
+            {detailsSuccess && !editingDetails && (
+              <p className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
+                {detailsSuccess}
+              </p>
+            )}
+            {editingDetails ? (
+              <form onSubmit={submitDetails} className="space-y-3">
+                {detailsError && <p className="text-sm text-red-600">{detailsError}</p>}
+                <div className="grid grid-cols-1 gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Name</span>
+                    <input
+                      name="name"
+                      value={detailsForm.name}
+                      onChange={handleDetailsChange}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</span>
+                    <select
+                      name="status"
+                      value={detailsForm.status}
+                      onChange={handleDetailsChange}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={!statuses.length}
+                    >
+                      {statuses.length === 0 && (
+                        <option value={detailsForm.status || ""}>
+                          {detailsForm.status || "Loading statuses…"}
+                        </option>
+                      )}
+                      {statuses.map((status) => (
+                        <option key={status.id} value={status.name}>
+                          {status.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</span>
+                    <input
+                      name="phone"
+                      value={detailsForm.phone}
+                      onChange={handleDetailsChange}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</span>
+                    <input
+                      name="email"
+                      type="email"
+                      value={detailsForm.email}
+                      onChange={handleDetailsChange}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</span>
+                    <input
+                      name="flat_no"
+                      value={detailsForm.flat_no}
+                      onChange={handleDetailsChange}
+                      maxLength={50}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</span>
+                    <textarea
+                      name="address"
+                      rows={3}
+                      value={detailsForm.address}
+                      onChange={handleDetailsChange}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder path</span>
+                    <input
+                      name="dropboxFolderPath"
+                      value={detailsForm.dropboxFolderPath}
+                      onChange={handleDetailsChange}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="/Apps/FinFlow/customer-folder"
+                    />
+                  </label>
+                  {isAdmin && (
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</span>
+                      <select
+                        name="primary_agent_id"
+                        value={detailsForm.primary_agent_id}
+                        onChange={handleDetailsChange}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Unassigned</option>
+                        {agents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name || agent.email}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="submit"
+                    disabled={detailsSaving}
+                    className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    {detailsSaving ? "Saving…" : "Save changes"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelDetailsEditing}
+                    disabled={detailsSaving}
+                    className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-2 text-sm">
+                <div className="p-3 rounded-lg bg-white shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Status</p>
+                  <p className="text-base text-gray-900">{customer.status}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-white shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Flat No.</p>
+                  <p className="text-base text-gray-900">{customer.flat_no || "—"}</p>
+                </div>
+                {isAdmin && (
+                  <div className="p-3 rounded-lg bg-white shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Primary agent</p>
+                    <p className="text-base text-gray-900">
+                      {customer.primaryAgent?.name || customer.primaryAgent?.email || "Unassigned"}
+                    </p>
+                  </div>
+                )}
+                <div className="p-3 rounded-lg bg-white shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Email</p>
+                  <p>{customer.email || "—"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-white shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Phone</p>
+                  <p>{customer.phone || "—"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-white shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Address</p>
+                  <p>{customer.address || "—"}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-white shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Dropbox folder</p>
+                  <p className="break-all font-mono text-xs text-gray-600">
+                    {dropboxPath || "Folder will be created on demand"}
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+              {canEditCustomer && (
+                <button
+                  type="button"
+                  onClick={beginEditingDetails}
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900"
+                >
+                  <FiEdit3 className="h-4 w-4" aria-hidden="true" /> Edit details
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleOpenDeleteModal}
+                  className="inline-flex items-center gap-1 rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                >
+                  <FiTrash2 className="h-4 w-4" aria-hidden="true" /> Delete customer
+                </button>
+              )}
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Due on</span>
-                <input
-                  type="date"
-                  name="due_on"
-                  value={taskForm.due_on}
-                  onChange={handleTaskChange}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Remind on</span>
-                <input
-                  type="date"
-                  name="remind_on"
-                  value={taskForm.remind_on}
-                  onChange={handleTaskChange}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
-            </div>
-          </div>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</span>
-            <textarea
-              name="notes"
-              rows={3}
-              value={taskForm.notes}
-              onChange={handleTaskChange}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Optional context for the assignee"
-            />
-          </label>
-          {taskError && <p className="text-xs font-medium text-red-600">{taskError}</p>}
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={taskSaving}
-              className="inline-flex h-10 items-center justify-center rounded-full bg-green-600 px-4 text-sm font-semibold text-white transition hover:bg-green-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {taskSaving ? "Saving…" : editingTaskId ? "Update Task" : "Add Task"}
-            </button>
-            {editingTaskId && (
+          </section>
+        )}
+      </main>
+
+      <FloatingAddButton
+        label={`Add ${activeTab === "details" ? "details" : activeTab.slice(0, -1)}`}
+        onClick={handleFabClick}
+      />
+
+      {taskModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-gray-900/50 px-4 py-6 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {editingTaskId ? "Edit task" : "Add task"}
+                </h3>
+                <p className="text-sm text-gray-500">Keep teammates aligned with quick action items.</p>
+              </div>
               <button
                 type="button"
                 onClick={cancelTaskEditing}
-                className="inline-flex h-10 items-center justify-center rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
+                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
               >
-                Cancel edit
+                Close
               </button>
-            )}
-          </div>
-        </form>
-
-        <div className="space-y-3">
-          {taskLoading ? (
-            <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-              Loading tasks…
-            </p>
-          ) : tasks.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-              No tasks yet. Create your first action above.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {tasks.map((task) => (
-                <li key={task.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900">{task.title}</p>
-                        {task.status !== "pending" && (
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-600">
-                            {task.status}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                        <span>Due {formatDate(task.due_on)}</span>
-                        {task.remind_on && (
-                          <span className="inline-flex items-center gap-1 text-blue-600">
-                            <FiBell aria-hidden="true" />
-                            Remind {formatDate(task.remind_on)}
-                          </span>
-                        )}
-                        {task.assignee && (
-                          <span className="inline-flex items-center gap-1 text-gray-500">
-                            Assigned to {task.assignee.name || task.assignee.email}
-                          </span>
-                        )}
-                      </div>
-                      {task.notes ? (
-                        <p className="text-xs text-gray-600 whitespace-pre-line">{task.notes}</p>
-                      ) : null}
-                    </div>
-                    {task.status === "pending" && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleEditTask(task)}
-                          className="inline-flex h-9 items-center justify-center rounded-full border border-gray-300 px-3 text-xs font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
-                        >
-                          <FiEdit3 aria-hidden="true" /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => markTaskCompleted(task.id)}
-                          disabled={completingTaskId === task.id}
-                          className="inline-flex h-9 items-center justify-center rounded-full bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-70"
-                        >
-                          <FiCheckCircle aria-hidden="true" /> Done
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Loans</h2>
-            <p className="text-sm text-gray-500">
-              Manage every loan linked to this customer.
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => setShowLoanForm((prev) => !prev)}
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:w-auto"
-            >
-              {showLoanForm ? "Close" : "Add New Loan"}
-            </button>
-          </div>
-        </header>
-
-        {showLoanForm && (
-          <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4">
-            <LoanForm
-              onSuccess={() => {
-                setShowLoanForm(false);
-                refreshLoans();
-              }}
-              initialCustomerId={customer.id}
-              disableCustomerSelection
-              customerName={`${customer.customer_id} — ${customer.name}`}
-              showSuccessAlert={false}
-            />
-          </div>
-        )}
-
-        {loansView.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-            No loans recorded for this customer.
-          </p>
-        ) : (
-          <>
-            <div className="hidden overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm md:block">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50">
-                    <tr className="text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      <th className="px-4 py-3">Bank</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3">Applied</th>
-                      <th className="px-4 py-3">Approved</th>
-                      <th className="px-4 py-3">ROI</th>
-                      <th className="px-4 py-3">Last updated</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {loansView.map((loan) => (
-                      <tr
-                        key={loan.id}
-                        className="cursor-pointer transition hover:bg-blue-50/60"
-                        onClick={() => setLoanDrawerId(loan.id)}
-                      >
-                        <td className="px-4 py-3">{loan.bank}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1">
-                            <span className="font-medium text-gray-800">{loan.status}</span>
-                            <span className="text-xs text-gray-500">Aging: {loan.aging} days in {loan.status}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">{loan.applied}</td>
-                        <td className="px-4 py-3">{loan.approved}</td>
-                        <td className="px-4 py-3">{loan.roi}</td>
-                        <td className="px-4 py-3">{loan.updated}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            </div>
+            {taskFormError && <p className="mb-3 text-sm text-red-600">{taskFormError}</p>}
+            <form onSubmit={submitTask} className="space-y-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Title</span>
+                <input
+                  name="title"
+                  value={taskForm.title}
+                  onChange={handleTaskChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Follow up with customer"
+                />
+              </label>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Due date</span>
+                  <input
+                    type="date"
+                    name="due_on"
+                    value={taskForm.due_on}
+                    onChange={handleTaskChange}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Remind on</span>
+                  <input
+                    type="date"
+                    name="remind_on"
+                    value={taskForm.remind_on}
+                    onChange={handleTaskChange}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </label>
               </div>
-            </div>
-
-            <div className="space-y-3 md:hidden">
-              {loansView.map((loan) => (
-                <article
-                  key={loan.id}
-                  onClick={() => setLoanDrawerId(loan.id)}
-                  className="cursor-pointer rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md"
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Notes</span>
+                <textarea
+                  name="notes"
+                  rows={3}
+                  value={taskForm.notes}
+                  onChange={handleTaskChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Optional context for the assignee"
+                />
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={cancelTaskEditing}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 sm:w-auto"
                 >
-                  <header className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-900">{loan.bank}</h3>
-                      <p className="text-xs text-gray-500">Updated {loan.updated}</p>
-                    </div>
-                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                      {loan.status}
-                    </span>
-                  </header>
-                  <p className="mt-2 text-xs font-medium text-gray-500">Aging: {loan.aging} days in {loan.status}</p>
-                  <dl className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
-                    <div>
-                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Applied</dt>
-                      <dd className="text-gray-800">{loan.applied}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">Approved</dt>
-                      <dd className="text-gray-800">{loan.approved}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">ROI</dt>
-                      <dd className="text-gray-800">{loan.roi}</dd>
-                    </div>
-                  </dl>
-                </article>
-              ))}
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={taskSaving}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  {taskSaving ? "Saving…" : editingTaskId ? "Update Task" : "Add Task"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {noteModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-gray-900/50 px-4 py-6 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Add note</h3>
+                <p className="text-sm text-gray-500">Share quick updates or context with the team.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNoteModalOpen(false)}
+                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
             </div>
-          </>
-        )}
-      </section>
+            {noteError && <p className="mb-3 text-sm text-red-600">{noteError}</p>}
+            <form onSubmit={addNote} className="space-y-3">
+              <textarea
+                value={noteInput}
+                onChange={(event) => setNoteInput(event.target.value)}
+                rows={4}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Add a note for this customer"
+              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setNoteModalOpen(false)}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 sm:w-auto"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={notesSaving}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-green-600 px-6 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  {notesSaving ? "Saving…" : "Add Note"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {loanModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-gray-900/50 px-4 py-6 sm:items-center">
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Add loan</h3>
+                <p className="text-sm text-gray-500">Capture loan applications linked to this customer.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLoanModalOpen(false)}
+                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4">
+              <LoanForm
+                onSuccess={() => {
+                  setLoanModalOpen(false);
+                  refreshLoans();
+                }}
+                initialCustomerId={customer.id}
+                disableCustomerSelection
+                customerName={`${customer.customer_id} — ${customer.name}`}
+                showSuccessAlert={false}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {documentModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-gray-900/50 px-4 py-6 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Upload documents</h3>
+                <p className="text-sm text-gray-500">Files keep their original names in Dropbox.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDocumentModalOpen(false)}
+                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
+              >
+                Close
+              </button>
+            </div>
+            {documentError && <p className="mb-2 text-sm text-red-600">{documentError}</p>}
+            {documentSuccess && <p className="mb-2 text-sm text-green-600">{documentSuccess}</p>}
+            <form onSubmit={handleUploadDocuments} className="space-y-3">
+              <input
+                ref={documentInputRef}
+                type="file"
+                multiple
+                onChange={handleFileChange}
+                className="w-full text-sm text-gray-600 file:mr-4 file:rounded-full file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-blue-700 hover:file:bg-blue-100"
+              />
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setDocumentModalOpen(false)}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 sm:w-auto"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={uploadingDocuments}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  {uploadingDocuments ? "Uploading…" : "Upload"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {templateModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-gray-900/50 px-4">
@@ -1200,14 +1254,14 @@ export default function CustomerDetail() {
               </div>
               <button
                 type="button"
-                onClick={handleCloseTemplateModal}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-500 transition hover:border-gray-300 hover:text-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-300"
+                onClick={() => setTemplateModalOpen(false)}
+                className="text-sm font-semibold text-gray-500 hover:text-gray-700"
               >
-                ×
+                Close
               </button>
             </header>
-            <form onSubmit={applyTemplate} className="space-y-4">
-              <label className="flex flex-col gap-1">
+            <form onSubmit={(event) => event.preventDefault()} className="space-y-4">
+              <label className="flex flex-col gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Template</span>
                 <select
                   value={templateSelection.templateId}
@@ -1217,12 +1271,9 @@ export default function CustomerDetail() {
                       templateId: event.target.value,
                     }))
                   }
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="" disabled>
-                    {templateLoading ? "Loading templates…" : "Select a template"}
-                  </option>
+                  <option value="">Select a template…</option>
                   {templates.map((template) => (
                     <option key={template.id} value={template.id}>
                       {template.name}
@@ -1230,7 +1281,7 @@ export default function CustomerDetail() {
                   ))}
                 </select>
               </label>
-              <label className="flex flex-col gap-1">
+              <label className="flex flex-col gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Assignee</span>
                 <select
                   value={templateSelection.assigneeMode}
@@ -1240,28 +1291,62 @@ export default function CustomerDetail() {
                       assigneeMode: event.target.value,
                     }))
                   }
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="default">Default (customer owner)</option>
+                  <option value="default">Keep template assignee</option>
                   <option value="self">Assign to me</option>
                 </select>
               </label>
-              {templateError && <p className="text-xs font-medium text-red-600">{templateError}</p>}
-              {templateMessage && <p className="text-xs font-medium text-emerald-600">{templateMessage}</p>}
-              <div className="flex items-center justify-end gap-2">
+              {templateError && <p className="text-sm text-red-600">{templateError}</p>}
+              {templateMessage && <p className="text-sm text-green-600">{templateMessage}</p>}
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  onClick={handleCloseTemplateModal}
-                  className="inline-flex h-10 items-center justify-center rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-600 transition hover:border-gray-400 hover:text-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
+                  onClick={() => setTemplateModalOpen(false)}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full border border-gray-300 px-6 text-sm font-semibold text-gray-700 transition hover:border-gray-400 hover:text-gray-900 sm:w-auto"
                 >
-                  Close
+                  Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="button"
                   disabled={templateLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-full bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-70"
+                  onClick={async () => {
+                    if (!templateSelection.templateId) {
+                      setTemplateError("Select a template to apply");
+                      return;
+                    }
+                    setTemplateLoading(true);
+                    setTemplateError("");
+                    setTemplateMessage("");
+                    try {
+                      const payload = { template_id: templateSelection.templateId };
+                      if (templateSelection.assigneeMode === "self" && user?.id) {
+                        payload.assignee_id = user.id;
+                      }
+                      const response = await api.post(
+                        `/api/customers/${id}/tasks/templates/apply`,
+                        payload
+                      );
+                      const created = Array.isArray(response.data?.created_task_ids)
+                        ? response.data.created_task_ids.length
+                        : 0;
+                      const skipped = Array.isArray(response.data?.skipped_titles)
+                        ? response.data.skipped_titles.length
+                        : 0;
+                      setTemplateMessage(
+                        `Created ${created} task${created === 1 ? "" : "s"}; skipped ${skipped}.`
+                      );
+                      await refreshTasks();
+                    } catch (err) {
+                      const message = err.response?.data?.error || err.message || "Unable to apply template";
+                      setTemplateError(message);
+                    } finally {
+                      setTemplateLoading(false);
+                    }
+                  }}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-full bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
-                  {templateLoading ? "Applying…" : "Apply"}
+                  {templateLoading ? "Applying…" : "Apply template"}
                 </button>
               </div>
             </form>
@@ -1269,15 +1354,13 @@ export default function CustomerDetail() {
         </div>
       )}
 
-      <LoanDrawer
-        loanId={loanDrawerId}
-        open={Boolean(loanDrawerId)}
-        onClose={() => setLoanDrawerId(null)}
-        onSaved={refreshLoans}
-      />
-      {isAdmin && (
+      {loanDrawerId && (
+        <LoanDrawer loanId={loanDrawerId} onClose={() => setLoanDrawerId(null)} />
+      )}
+
+      {deleteModalOpen && (
         <CustomerDeleteModal
-          open={deleteModalOpen}
+          isOpen={deleteModalOpen}
           onClose={handleCloseDeleteModal}
           customer={customer}
           onDeleted={handleCustomerDeleted}
@@ -1286,4 +1369,3 @@ export default function CustomerDetail() {
     </div>
   );
 }
-
