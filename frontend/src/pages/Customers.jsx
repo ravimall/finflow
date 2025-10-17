@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiPlus, FiSearch } from "react-icons/fi";
-import { AnimatePresence, motion } from "framer-motion";
+import { FiSearch } from "react-icons/fi";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus } from "lucide-react";
 import CustomerForm from "../components/CustomerForm";
 import CustomerDeleteModal from "../components/CustomerDeleteModal.jsx";
 import { AuthContext } from "../context/AuthContext";
@@ -210,24 +211,39 @@ export default function Customers() {
   const skeletonItems = useMemo(() => Array.from({ length: 6 }, (_, index) => index), []);
 
   return (
-    <div className="relative min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-3xl px-4 pb-28 pt-4">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold text-gray-900">Customers</h1>
-          <p className="text-sm text-gray-500">Track loan progress and pending tasks at a glance.</p>
-          {loading && <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>}
+    <div className="min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-screen-md p-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">Customers</h1>
+            <p className="text-sm text-gray-500">
+              Track loan progress and pending tasks at a glance.
+            </p>
+            {loading && (
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>
+            )}
+          </div>
+
+          {!showForm && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <Plus className="h-5 w-5" />
+              <span className="hidden sm:inline">Add Customer</span>
+            </button>
+          )}
         </div>
 
-        <AnimatePresence initial={false}>
+        <AnimatePresence>
           {showForm && (
             <motion.div
-              key="customer-form"
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              key="add-customer-form"
+              initial={{ opacity: 0, y: -10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 12, scale: 0.98 }}
-              transition={{ duration: 0.2 }}
-              layout
-              className="mt-4 rounded-lg bg-white p-4 shadow-md transition-all duration-300"
+              exit={{ opacity: 0, y: -10, scale: 0.97 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="mb-4 rounded-lg bg-white p-4 shadow-md"
             >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="text-base font-semibold text-gray-800">Add customer</h2>
@@ -244,6 +260,7 @@ export default function Customers() {
                   fetchCustomers();
                   setShowForm(false);
                 }}
+                onCancel={() => setShowForm(false)}
               />
             </motion.div>
           )}
@@ -311,17 +328,6 @@ export default function Customers() {
               )}
         </div>
       </div>
-
-      {!showForm && (
-        <button
-          type="button"
-          onClick={() => setShowForm(true)}
-          className="fixed bottom-20 right-5 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-3xl font-semibold text-white shadow-lg transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-          aria-label="Add customer"
-        >
-          <FiPlus className="h-5 w-5" aria-hidden="true" />
-        </button>
-      )}
 
       {isAdmin && (
         <CustomerDeleteModal
