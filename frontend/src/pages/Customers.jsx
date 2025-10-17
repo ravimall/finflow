@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FiSearch } from "react-icons/fi";
+import { FiPlus, FiSearch } from "react-icons/fi";
+import { AnimatePresence, motion } from "framer-motion";
 import CustomerForm from "../components/CustomerForm";
 import CustomerDeleteModal from "../components/CustomerDeleteModal.jsx";
 import { AuthContext } from "../context/AuthContext";
@@ -217,26 +218,36 @@ export default function Customers() {
           {loading && <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>}
         </div>
 
-        {showForm && (
-          <div className="mt-4 rounded-lg bg-white p-4 shadow-md">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-gray-800">Add customer</h2>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="text-sm font-semibold text-blue-600 transition hover:text-blue-700"
-              >
-                Cancel
-              </button>
-            </div>
-            <CustomerForm
-              onSuccess={() => {
-                fetchCustomers();
-                setShowForm(false);
-              }}
-            />
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {showForm && (
+            <motion.div
+              key="customer-form"
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              layout
+              className="mt-4 rounded-lg bg-white p-4 shadow-md transition-all duration-300"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-gray-800">Add customer</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="text-sm font-semibold text-blue-600 transition hover:text-blue-700"
+                >
+                  Cancel
+                </button>
+              </div>
+              <CustomerForm
+                onSuccess={() => {
+                  fetchCustomers();
+                  setShowForm(false);
+                }}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="mt-4 space-y-3">
           <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-sm">
@@ -308,7 +319,7 @@ export default function Customers() {
           className="fixed bottom-20 right-5 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-3xl font-semibold text-white shadow-lg transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
           aria-label="Add customer"
         >
-          +
+          <FiPlus className="h-5 w-5" aria-hidden="true" />
         </button>
       )}
 
