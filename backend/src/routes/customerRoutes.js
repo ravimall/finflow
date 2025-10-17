@@ -56,34 +56,6 @@ function handleDropboxError(res, err, fallbackMessage) {
   return res.status(effectiveStatus).json({ error: normalizedMessage });
 }
 
-async function cleanupLegacyDropboxReferences() {
-  try {
-    const [updated] = await Customer.update(
-      { dropboxFolderPath: null },
-      {
-        where: {
-          dropboxFolderPath: {
-            [Op.or]: [
-              { [Op.like]: "/Apps/FinFlow/finflow/%" },
-              { [Op.like]: "/finflow/%" },
-            ],
-          },
-        },
-      }
-    );
-
-    if (updated > 0) {
-      // eslint-disable-next-line no-console
-      console.info(`🧹 Cleared ${updated} legacy Dropbox folder references`);
-    }
-  } catch (error) {
-    // eslint-disable-next-line no-console
-    console.error(`❌ Failed to clear legacy Dropbox folder references: ${error.message}`);
-  }
-}
-
-cleanupLegacyDropboxReferences();
-
 function logDropboxPathUpdate(customerId, path) {
   const serializedPath = typeof path === "string" ? path : null;
   // eslint-disable-next-line no-console
