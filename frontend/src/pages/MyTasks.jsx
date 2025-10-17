@@ -75,6 +75,33 @@ const COLUMN_OPTIONS = [
 const DESKTOP_ROW_HEIGHT = 44;
 const MOBILE_ROW_HEIGHT = 76;
 const VIRTUAL_OVERSCAN = 8;
+const TASKS_API_MODE_KEY = "tasks:api-mode";
+
+function loadTasksApiMode() {
+  if (typeof window === "undefined") return "modern";
+  try {
+    const stored = window.localStorage.getItem(TASKS_API_MODE_KEY);
+    if (stored === "legacy" || stored === "modern") {
+      return stored;
+    }
+  } catch (err) {
+    console.warn("Failed to load tasks API mode", err);
+  }
+  return "modern";
+}
+
+function persistTasksApiMode(mode) {
+  if (typeof window === "undefined") return;
+  try {
+    if (mode === "legacy" || mode === "modern") {
+      window.localStorage.setItem(TASKS_API_MODE_KEY, mode);
+    } else {
+      window.localStorage.removeItem(TASKS_API_MODE_KEY);
+    }
+  } catch (err) {
+    console.warn("Failed to persist tasks API mode", err);
+  }
+}
 
 function useDebouncedValue(value, delay) {
   const [debounced, setDebounced] = useState(value);
@@ -678,7 +705,7 @@ export default function MyTasks() {
   const [drawerTask, setDrawerTask] = useState(null);
   const [drawerTab, setDrawerTab] = useState("task");
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [useLegacyApi, setUseLegacyApi] = useState(false);
+  const [useLegacyApi, setUseLegacyApi] = useState(() => loadTasksApiMode() === "legacy");
   const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [bulkAction, setBulkAction] = useState({ mode: null, data: null });
   const [agents, setAgents] = useState([]);
@@ -1049,6 +1076,7 @@ export default function MyTasks() {
             "Using limited task data while the new tasks API is unavailable."
           );
         }
+        persistTasksApiMode("legacy");
         return true;
       } catch (legacyError) {
         const message =
@@ -1074,11 +1102,13 @@ export default function MyTasks() {
       const responsePage = Number(response.data?.page || page);
       const responsePageSize = Number(response.data?.page_size || pageSize);
 
+      persistTasksApiMode("modern");
       applyResponse(items, groups, total, responsePage, responsePageSize);
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 404) {
         const success = await runLegacyFetch(true);
         if (success) {
+          persistTasksApiMode("legacy");
           setUseLegacyApi(true);
           return;
         }
@@ -1223,6 +1253,14 @@ export default function MyTasks() {
     }
     setPage(1);
   }, []);
+
+  const handleRetryNewApi = useCallback(() => {
+    persistTasksApiMode("modern");
+    setUseLegacyApi(false);
+    setError("");
+    setLoading(true);
+    showToast("info", "Trying the updated tasks service…");
+  }, [showToast]);
 
   const handleInlineUpdate = useCallback(
     async (taskId, updates) => {
@@ -2384,12 +2422,21 @@ export default function MyTasks() {
       </div>
 
       {useLegacyApi && (
-        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <FiAlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <span>
-            Showing a limited task view while the new tasks service is unavailable. Some filters and
-            groupings may be reduced.
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="flex items-start gap-2">
+            <FiAlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>
+              Showing a limited task view while the new tasks service is unavailable. Some filters and
+              groupings may be reduced.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetryNewApi}
+            className="inline-flex items-center rounded-full border border-amber-300 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-amber-800 transition hover:bg-amber-100"
+          >
+            Retry new service
+          </button>
         </div>
       )}
 
