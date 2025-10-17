@@ -542,6 +542,9 @@ function computeDueRange(quickFilters, dueFrom, dueTo) {
     end.setDate(start.getDate() + 6);
     const from = start.toISOString().split("T")[0];
     const to = end.toISOString().split("T")[0];
+    if (quickFilters.overdue && !dueFrom && !dueTo) {
+      return { from: null, to };
+    }
     return { from, to };
   }
   return {
@@ -823,13 +826,16 @@ export default function MyTasks() {
     if (priorityFilter.length > 0) {
       params.priority = priorityFilter;
     }
+    const hasCustomDueFilter = Boolean(filters.dueFrom || filters.dueTo);
     if (dueRange.from) {
       params.due_from = dueRange.from;
     }
     if (dueRange.to) {
       params.due_to = dueRange.to;
     }
-    if (quickFilters.overdue) {
+    const applyOverdueOnly =
+      quickFilters.overdue && !(quickFilters.thisWeek && !hasCustomDueFilter);
+    if (applyOverdueOnly) {
       params.overdue_only = true;
     }
     if (quickFilters.unassigned) {
@@ -1039,6 +1045,35 @@ export default function MyTasks() {
 
         if (statusFilter.length > 0) {
           items = items.filter((task) => statusFilter.includes(task.status || "pending"));
+        }
+
+        const dueFromRaw = queryParams.due_from || null;
+        const dueToRaw = queryParams.due_to || null;
+        if (dueFromRaw || dueToRaw) {
+          const dueFrom = dueFromRaw ? new Date(dueFromRaw) : null;
+          const dueTo = dueToRaw ? new Date(dueToRaw) : null;
+          if (dueFrom && !Number.isNaN(dueFrom.getTime())) {
+            dueFrom.setHours(0, 0, 0, 0);
+          }
+          if (dueTo && !Number.isNaN(dueTo.getTime())) {
+            dueTo.setHours(23, 59, 59, 999);
+          }
+          items = items.filter((task) => {
+            if (!task.dueDate) {
+              return false;
+            }
+            const dueDate = new Date(task.dueDate);
+            if (Number.isNaN(dueDate.getTime())) {
+              return false;
+            }
+            if (dueFrom && !Number.isNaN(dueFrom.getTime()) && dueDate < dueFrom) {
+              return false;
+            }
+            if (dueTo && !Number.isNaN(dueTo.getTime()) && dueDate > dueTo) {
+              return false;
+            }
+            return true;
+          });
         }
 
         if (queryParams.overdue_only) {
