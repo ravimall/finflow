@@ -6,12 +6,16 @@ import { api } from "../lib/api.js";
 import { useToast } from "../context/ToastContext.jsx";
 import LoanCompactCard from "../components/LoanCompactCard.jsx";
 
+const LOAN_SWIPE_HINT_KEY = "finflow.loans.swipe-hint";
+
 export default function Loans() {
   const [loans, setLoans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [showSwipeHint, setShowSwipeHint] = useState(false);
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -27,6 +31,33 @@ export default function Loans() {
   useEffect(() => {
     fetchLoans();
   }, [fetchLoans]);
+
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") {
+        setShowSwipeHint(true);
+        return;
+      }
+      const stored = window.localStorage?.getItem(LOAN_SWIPE_HINT_KEY);
+      if (stored !== "hidden") {
+        setShowSwipeHint(true);
+      }
+    } catch (error) {
+      console.warn("Unable to read loan swipe hint preference", error);
+      setShowSwipeHint(true);
+    }
+  }, []);
+
+  const dismissSwipeHint = useCallback(() => {
+    setShowSwipeHint(false);
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage?.setItem(LOAN_SWIPE_HINT_KEY, "hidden");
+      }
+    } catch (error) {
+      console.warn("Unable to persist loan swipe hint preference", error);
+    }
+  }, []);
 
   const statusOptions = useMemo(() => {
     const values = Array.from(
@@ -91,27 +122,36 @@ export default function Loans() {
   );
 
   return (
-    <div className="space-y-10 pb-24">
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6">
-        <header className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 md:text-2xl">Create loan</h2>
-            <p className="text-sm text-gray-500 md:text-base">
-              Capture loan requests quickly and keep customers moving.
-            </p>
-          </div>
-          {loading && <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>}
-        </header>
-        <LoanForm onSuccess={fetchLoans} />
-      </section>
-
-      <section className="mx-auto max-w-screen-md space-y-4">
+    <div className="relative min-h-screen bg-gray-50">
+      <div className="mx-auto max-w-3xl px-4 pb-28 pt-4">
         <div className="flex flex-col gap-2">
-          <h1 className="text-2xl font-semibold text-gray-900 md:text-3xl">Loans</h1>
-          {loading && <span className="text-sm text-gray-500">Loading loans…</span>}
+          <h1 className="text-2xl font-semibold text-gray-900">Loans</h1>
+          <p className="text-sm text-gray-500">Monitor applications and their current status quickly.</p>
+          {loading && <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Refreshing…</span>}
         </div>
 
-        <div className="sticky top-0 z-10 -mx-4 space-y-3 bg-white/95 px-4 pt-2 pb-3 backdrop-blur supports-[backdrop-filter]:bg-white/80 sm:static sm:mx-0 sm:px-0">
+        {showForm && (
+          <div className="mt-4 rounded-lg bg-white p-4 shadow-md">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-gray-800">Add loan</h2>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="text-sm font-semibold text-blue-600 transition hover:text-blue-700"
+              >
+                Cancel
+              </button>
+            </div>
+            <LoanForm
+              onSuccess={() => {
+                fetchLoans();
+                setShowForm(false);
+              }}
+            />
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
           <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-sm">
             <FiSearch className="h-4 w-4 text-gray-400" aria-hidden="true" />
             <input
@@ -137,34 +177,53 @@ export default function Loans() {
           )}
         </div>
 
-        <div className="space-y-2">
+        {showSwipeHint && filteredLoans.length > 0 && (
+          <p className="mt-4 text-center text-xs italic text-gray-400">
+            💡 Swipe left on a card to Edit or Delete
+          </p>
+        )}
+
+        <div className="mt-4 space-y-2 pb-8">
           {loading
             ? skeletonItems.map((item) => (
                 <div
                   key={item}
-                  className="h-16 animate-pulse rounded-xl border border-gray-100 bg-gray-100/60"
+                  className="h-16 animate-pulse rounded-lg bg-white/60 shadow-sm"
                 />
               ))
             : filteredLoans.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-600 md:text-base">
+                <p className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center text-sm text-gray-600">
                   {query || statusFilter !== "all"
                     ? "No loans match the current filters."
-                    : "No loans yet. Create the first loan using the form above."}
+                    : "No loans yet. Use the + button to create your first loan."}
                 </p>
               ) : (
-                filteredLoans.map((loan) => (
+                filteredLoans.map((loan, index) => (
                   <LoanCompactCard
                     key={loan.id}
                     loan={loan}
+                    index={index}
                     onPress={() => navigate(`/loans/${loan.id}`)}
                     onEdit={() => navigate(`/loans/${loan.id}`)}
                     onDelete={() => handleDeleteLoan(loan.id)}
                     isDeleting={deletingId === loan.id}
+                    onRevealActions={showSwipeHint ? dismissSwipeHint : undefined}
                   />
                 ))
               )}
         </div>
-      </section>
+      </div>
+
+      {!showForm && (
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="fixed bottom-20 right-5 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-3xl font-semibold text-white shadow-lg transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+          aria-label="Add loan"
+        >
+          +
+        </button>
+      )}
     </div>
   );
 }

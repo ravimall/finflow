@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import { motion } from "framer-motion";
+import { LuPencil, LuTrash2 } from "react-icons/lu";
 
 const STATUS_STYLE_MAP = {
   Login: {
@@ -57,6 +58,8 @@ export default function LoanCompactCard({
   onDelete,
   isDeleteDisabled,
   isDeleting,
+  index,
+  onRevealActions,
 }) {
   const [showActions, setShowActions] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -89,6 +92,9 @@ export default function LoanCompactCard({
 
   const handleDragEnd = (_event, info) => {
     if (info.offset.x < -60) {
+      if (!showActions) {
+        onRevealActions?.();
+      }
       setShowActions(true);
     } else if (info.offset.x > -10) {
       setShowActions(false);
@@ -109,8 +115,18 @@ export default function LoanCompactCard({
       : loan?.applied_amount
   );
 
+  const cardBackground =
+    index % 2 === 0
+      ? "bg-white hover:bg-green-100"
+      : "bg-green-50 hover:bg-green-100";
+
   return (
-    <div className="relative overflow-hidden rounded-xl">
+    <div className="group relative">
+      <div className="pointer-events-none absolute right-0 top-1/2 flex -translate-y-1/2 translate-x-1/3 gap-1 opacity-40 transition-opacity duration-200 group-hover:opacity-60">
+        <LuPencil className="h-3.5 w-3.5 text-gray-500" aria-hidden="true" />
+        <LuTrash2 className="h-3.5 w-3.5 text-gray-500" aria-hidden="true" />
+      </div>
+
       <div className="absolute inset-y-0 right-0 flex items-center gap-2 bg-gray-50 px-2">
         {onEdit && (
           <button
@@ -148,33 +164,25 @@ export default function LoanCompactCard({
         onDrag={(_event, info) => setDragOffset(info.offset.x)}
         onDragEnd={handleDragEnd}
         animate={{ x: showActions ? -120 : 0 }}
-        className={`relative z-10 flex cursor-pointer flex-col gap-1 rounded-xl border border-gray-100 bg-white p-3 text-sm shadow-sm transition hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${statusStyles.border}`}
+        className={`relative z-10 flex cursor-pointer flex-col rounded-lg p-3 text-sm shadow-sm transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 active:shadow-inner ${statusStyles.border} ${cardBackground}`}
         role="button"
         tabIndex={0}
         onClick={handleCardClick}
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-sm font-semibold text-gray-900">
-              {loan?.bank?.name || loan?.bank_name || "Bank"}
-            </span>
-            {loan?.customer?.name ? (
-              <span className="truncate text-[0.7rem] text-gray-500">
-                {loan.customer.customer_id ? `${loan.customer.customer_id} · ` : ""}
-                {loan.customer.name}
-              </span>
-            ) : null}
+          <div className="truncate font-semibold text-gray-800">
+            {loan?.bank?.name || loan?.bank_name || "Bank"}
           </div>
-          <span className="text-xs font-medium text-gray-500">{appliedAmountLabel}</span>
+          <span className="text-xs text-gray-500">{appliedAmountLabel}</span>
         </div>
-        <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="mt-1 flex items-center justify-between gap-3">
           <span
             className={`inline-flex items-center rounded-full px-2 py-1 text-[0.65rem] font-semibold ${statusStyles.chip}`}
           >
             {loan?.status || "Unknown"}
           </span>
-          <span className="truncate text-[0.7rem] text-gray-500">{interestLabel}</span>
+          <span className="text-xs text-gray-500">{interestLabel}</span>
         </div>
       </motion.div>
     </div>
@@ -203,6 +211,8 @@ LoanCompactCard.propTypes = {
   onDelete: PropTypes.func,
   isDeleteDisabled: PropTypes.bool,
   isDeleting: PropTypes.bool,
+  index: PropTypes.number,
+  onRevealActions: PropTypes.func,
 };
 
 LoanCompactCard.defaultProps = {
@@ -211,4 +221,6 @@ LoanCompactCard.defaultProps = {
   onDelete: undefined,
   isDeleteDisabled: false,
   isDeleting: false,
+  index: 0,
+  onRevealActions: undefined,
 };
