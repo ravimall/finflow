@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     alias: {
-      "lucide-react": path.resolve(__dirname, "src/vendor/lucide-react.js"),
+      "lucide-react": path.resolve(__dirname, "src/vendor/lucide-react.jsx"),
     },
   },
   server: {
