@@ -320,6 +320,313 @@ async function buildGroups(groupBy, whereClause) {
   return [];
 }
 
+const { Op, fn, col, literal, cast } = Sequelize;
+
+const ALLOWED_STATUSES = [
+  "pending",
+  "waiting",
+  "in_progress",
+  "blocked",
+  "completed",
+  "cancelled",
+];
+
+const ALLOWED_PRIORITIES = ["low", "medium", "high", "urgent"];
+
+const listIncludes = [
+  {
+    model: Customer,
+    as: "customer",
+    attributes: [
+      "id",
+      "name",
+      "customer_id",
+      "status",
+      "primary_agent_id",
+    ],
+    include: [
+      {
+        model: User,
+        as: "primaryAgent",
+        attributes: ["id", "name", "email"],
+        required: false,
+      },
+    ],
+    required: false,
+  },
+  {
+    model: User,
+    as: "assignee",
+    attributes: ["id", "name", "email"],
+    required: false,
+  },
+];
+
+const aggregationIncludes = [
+  {
+    model: Customer,
+    as: "customer",
+    attributes: [],
+    required: false,
+  },
+  {
+    model: User,
+    as: "assignee",
+    attributes: [],
+    required: false,
+  },
+];
+
+function parseArrayParam(query, key) {
+  const value = query[key] ?? query[`${key}[]`];
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.split(",").map((entry) => entry.trim());
+  }
+
+  return [];
+}
+
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    return ["true", "1", "yes", "on"].includes(value.toLowerCase());
+  }
+  return false;
+}
+
+function parseDateOnly(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function escapeLike(value) {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function sanitizeTextForArray(values) {
+  return values.map((value) =>
+    value
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/'/g, "''")
+  );
+}
+
+function buildJsonbExistsAnyCondition(column, values) {
+  if (!values.length) {
+    return null;
+  }
+  const sanitized = sanitizeTextForArray(values);
+  const arrayLiteral = `{${sanitized.map((v) => `"${v}"`).join(",")}}`;
+
+  return Sequelize.where(
+    fn(
+      "jsonb_exists_any",
+      col(column),
+      cast(Sequelize.literal(`'${arrayLiteral}'`), "text[]")
+    ),
+    true
+  );
+}
+
+function formatDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value);
+}
+
+function isOverdue(status, dueDate) {
+  if (!dueDate || status === "completed") {
+    return false;
+  }
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  return new Date(`${dueDate}T00:00:00Z`) < today;
+}
+
+function computeGroupKey(task, groupBy) {
+  switch (groupBy) {
+    case "customer": {
+      const id = task.customer ? task.customer.id : null;
+      return id ? `customer:${id}` : "customer:null";
+    }
+    case "agent": {
+      const id = task.assignee ? task.assignee.id : null;
+      return id ? `agent:${id}` : "agent:null";
+    }
+    case "status":
+      return `status:${task.status}`;
+    case "due_week": {
+      const dueDate = formatDate(task.due_on);
+      if (!dueDate) {
+        return "due_week:unscheduled";
+      }
+      const date = new Date(`${dueDate}T00:00:00Z`);
+      const tempDate = new Date(date.valueOf());
+      tempDate.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(tempDate.getUTCFullYear(), 0, 1));
+      const week = Math.ceil(((tempDate - yearStart) / 86400000 + 1) / 7);
+      const weekString = String(week).padStart(2, "0");
+      return `due_week:${tempDate.getUTCFullYear()}-W${weekString}`;
+    }
+    default:
+      return null;
+  }
+}
+
+function formatTask(task, groupBy) {
+  const dueDate = formatDate(task.due_on);
+  const updatedAt = task.updated_at instanceof Date ? task.updated_at.toISOString() : null;
+  const completedAt = task.completed_at instanceof Date ? task.completed_at.toISOString() : null;
+  const tags = Array.isArray(task.tags) ? task.tags : [];
+  const riskFlags = Array.isArray(task.risk_flags) ? task.risk_flags : [];
+
+  const groupKey = groupBy && groupBy !== "none" ? computeGroupKey(task, groupBy) : null;
+
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    due_date: dueDate,
+    priority: task.priority || "medium",
+    assignee_id: task.assignee ? task.assignee.id : task.assignee_id,
+    assignee_name: task.assignee ? task.assignee.name : null,
+    assignee_email: task.assignee ? task.assignee.email : null,
+    customer_id: task.customer ? task.customer.id : task.customer_id,
+    customer_code: task.customer ? task.customer.customer_id : null,
+    customer_name: task.customer ? task.customer.name : null,
+    customer_status: task.customer ? task.customer.status : null,
+    customer_primary_agent_id: task.customer ? task.customer.primary_agent_id : null,
+    customer_primary_agent_name: task.customer && task.customer.primaryAgent
+      ? task.customer.primaryAgent.name
+      : null,
+    risk_flags: riskFlags,
+    tags,
+    updated_at: updatedAt,
+    type: "task",
+    overdue: isOverdue(task.status, dueDate),
+    completed_at: completedAt,
+    group_key: groupKey,
+    notes: task.notes || null,
+  };
+}
+
+async function buildGroups(groupBy, whereClause) {
+  if (!groupBy || groupBy === "none") {
+    return [];
+  }
+
+  if (groupBy === "customer") {
+    const rows = await Task.findAll({
+      where: whereClause,
+      attributes: [
+        "customer_id",
+        [col("customer.id"), "customer_db_id"],
+        [col("customer.name"), "customer_name"],
+        [fn("COUNT", col("Task.id")), "count"],
+      ],
+      include: aggregationIncludes,
+      group: ["Task.customer_id", "customer.id", "customer.name"],
+      raw: true,
+    });
+
+    return rows.map((row) => {
+      const id = row.customer_db_id;
+      return {
+        key: id ? `customer:${id}` : "customer:null",
+        label: row.customer_name || "Unassigned Customer",
+        count: Number(row.count) || 0,
+      };
+    });
+  }
+
+  if (groupBy === "agent") {
+    const rows = await Task.findAll({
+      where: whereClause,
+      attributes: [
+        "assignee_id",
+        [col("assignee.id"), "assignee_db_id"],
+        [col("assignee.name"), "assignee_name"],
+        [fn("COUNT", col("Task.id")), "count"],
+      ],
+      include: aggregationIncludes,
+      group: ["Task.assignee_id", "assignee.id", "assignee.name"],
+      raw: true,
+    });
+
+    return rows.map((row) => {
+      const id = row.assignee_db_id;
+      return {
+        key: id ? `agent:${id}` : "agent:null",
+        label: row.assignee_name || "Unassigned",
+        count: Number(row.count) || 0,
+      };
+    });
+  }
+
+  if (groupBy === "status") {
+    const rows = await Task.findAll({
+      where: whereClause,
+      attributes: [
+        "status",
+        [fn("COUNT", col("Task.id")), "count"],
+      ],
+      include: aggregationIncludes,
+      group: ["Task.status"],
+      raw: true,
+    });
+
+    return rows.map((row) => ({
+      key: `status:${row.status}`,
+      label: row.status,
+      count: Number(row.count) || 0,
+    }));
+  }
+
+  if (groupBy === "due_week") {
+    const weekLabelSql =
+      "CASE WHEN \"Task\".\"due_on\" IS NULL THEN 'unscheduled' ELSE to_char(\"Task\".\"due_on\", 'IYYY-\"W\"IW') END";
+    const rows = await Task.findAll({
+      where: whereClause,
+      attributes: [
+        [literal(weekLabelSql), "label"],
+        [fn("COUNT", col("Task.id")), "count"],
+      ],
+      include: aggregationIncludes,
+      group: [literal(weekLabelSql)],
+      raw: true,
+    });
+
+    return rows.map((row) => {
+      const label = row.label || "unscheduled";
+      return {
+        key: `due_week:${label === "unscheduled" ? "unscheduled" : label}`,
+        label,
+        count: Number(row.count) || 0,
+      };
+    });
+  }
+
+  return [];
+}
+
 async function userCanAccessCustomer(user, customer) {
   if (!customer) {
     const err = new Error("Customer not found");
