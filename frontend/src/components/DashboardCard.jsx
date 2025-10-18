@@ -1,25 +1,23 @@
 import PropTypes from "prop-types";
 
-export default function DashboardCard({ title, value, icon, color }) {
+export default function DashboardCard({ title, children, loading }) {
   return (
-    <div
-      className={`flex h-full w-full flex-col items-start justify-center rounded-xl p-4 shadow-sm transition ${color}`}
-    >
-      <div className="mb-2 text-2xl">{icon}</div>
-      <div className="text-lg font-semibold">{value}</div>
-      <div className="text-sm opacity-80">{title}</div>
+    <div className="h-full w-full rounded-xl bg-white p-4 shadow-sm transition-all duration-200 hover:scale-[1.01] hover:shadow-md">
+      <h2 className="text-sm font-semibold text-gray-600">{title}</h2>
+      <div className="mt-2 text-sm text-gray-500">
+        {loading ? <p className="text-xs text-gray-400">Loading...</p> : children}
+      </div>
     </div>
   );
 }
 
 DashboardCard.propTypes = {
   title: PropTypes.string.isRequired,
-  value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
-  icon: PropTypes.node,
-  color: PropTypes.string,
+  children: PropTypes.node,
+  loading: PropTypes.bool,
 };
 
 DashboardCard.defaultProps = {
-  icon: null,
-  color: "bg-white text-gray-900",
+  children: null,
+  loading: false,
 };
