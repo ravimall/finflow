@@ -1,21 +1,30 @@
 import { forwardRef } from "react";
+import {
+  FiPlus,
+  FiX,
+  FiHome,
+  FiUser,
+  FiFileText,
+  FiSettings,
+  FiBarChart2,
+  FiClock,
+  FiTool,
+} from "react-icons/fi";
 
-export const Plus = forwardRef(({ className = "", ...props }, ref) => (
-  <svg
-    ref={ref}
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-    {...props}
-  >
-    <path d="M12 5v14" />
-    <path d="M5 12h14" />
-  </svg>
-));
+const createIcon = (IconComponent, displayName) => {
+  const Component = forwardRef(({ className = "", ...props }, ref) => (
+    <IconComponent ref={ref} className={className} {...props} />
+  ));
+  Component.displayName = displayName;
+  return Component;
+};
 
-Plus.displayName = "Plus";
+export const Plus = createIcon(FiPlus, "Plus");
+export const X = createIcon(FiX, "X");
+export const Home = createIcon(FiHome, "Home");
+export const User = createIcon(FiUser, "User");
+export const FileText = createIcon(FiFileText, "FileText");
+export const Settings = createIcon(FiSettings, "Settings");
+export const BarChart = createIcon(FiBarChart2, "BarChart");
+export const Clock = createIcon(FiClock, "Clock");
+export const Wrench = createIcon(FiTool, "Wrench");

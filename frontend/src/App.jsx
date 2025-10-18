@@ -37,7 +37,7 @@ function AppContent() {
             <TopNav />
           </div>
           <div className="md:hidden">
-            <BottomNav />
+            <BottomNav user={user} />
           </div>
         </>
       )}
