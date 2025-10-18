@@ -1,5 +1,6 @@
 const express = require("express");
 const { body, validationResult } = require("express-validator");
+const { Op } = require("sequelize");
 const router = express.Router();
 
 const {
@@ -170,28 +171,36 @@ router.post(
 
 router.get("/", auth(), async (req, res) => {
   try {
+    const { id: userId, role } = req.user;
+
     const query = {
       include: [
         {
           model: Customer,
           as: "customer",
-          attributes: ["id", "name", "customer_id"],
+          attributes: ["id", "name", "customer_id", "created_by", "primary_agent_id"],
         },
         { model: ConfigBank, as: "bank", attributes: ["id", "name"] },
       ],
       order: [["created_at", "DESC"]],
     };
 
-    if (req.user.role !== "admin") {
+    if (role !== "admin") {
       query.include[0].include = [
         {
           model: CustomerAgent,
           as: "assignments",
           attributes: [],
-          where: { agent_id: req.user.id },
-          required: true,
+          required: false,
         },
       ];
+      query.where = {
+        [Op.or]: [
+          { "$customer.created_by$": userId },
+          { "$customer.primary_agent_id$": userId },
+          { "$customer.assignments.agent_id$": userId },
+        ],
+      };
       query.distinct = true;
     }
 

@@ -65,6 +65,7 @@ export default function LoanCompactCard({
   const [dragOffset, setDragOffset] = useState(0);
 
   const statusStyles = useMemo(() => getStatusStyles(loan?.status), [loan?.status]);
+  const customerName = loan?.customer?.name;
 
   const closeActions = () => {
     setShowActions(false);
@@ -170,11 +171,16 @@ export default function LoanCompactCard({
         onClick={handleCardClick}
         onKeyDown={handleKeyDown}
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="truncate font-semibold text-gray-800">
-            {loan?.bank?.name || loan?.bank_name || "Bank"}
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="truncate font-semibold text-gray-800">
+              {loan?.bank?.name || loan?.bank_name || "Bank"}
+            </div>
+            <div className="text-xs text-gray-500">
+              Customer: {customerName || "N/A"}
+            </div>
           </div>
-          <span className="text-xs text-gray-500">{appliedAmountLabel}</span>
+          <span className="text-xs text-gray-500 sm:whitespace-nowrap">{appliedAmountLabel}</span>
         </div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <span

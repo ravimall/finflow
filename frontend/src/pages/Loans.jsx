@@ -25,8 +25,11 @@ export default function Loans() {
     setLoading(true);
     api
       .get("/api/loans")
-      .then((res) => setLoans(res.data))
-      .catch(() => setLoans([]))
+      .then((res) => setLoans(res.data ?? []))
+      .catch((error) => {
+        console.error("Error fetching loans", error);
+        setLoans([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
