@@ -6,38 +6,6 @@ import { useToast } from "../context/ToastContext.jsx";
 import { api } from "../lib/api.js";
 
 const ACTIVE_TASK_STATUSES = ["pending", "waiting", "in_progress", "blocked"];
-const INACTIVE_LOAN_KEYWORDS = ["close", "cancel", "reject", "complete", "settle", "foreclose", "decline"];
-
-function getTodayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  return { start, end };
-}
-
-function getWeekRange() {
-  const now = new Date();
-  const start = new Date(now);
-  const day = start.getDay();
-  const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-  start.setDate(diff);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
-}
-
-function isDateInRange(value, range) {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return false;
-  }
-  return date >= range.start && date <= range.end;
-}
 
 function resolveErrorMessage(error) {
   if (isAxiosError(error)) {
@@ -54,33 +22,39 @@ function resolveErrorMessage(error) {
   return "";
 }
 
-function isLoanStatusActive(status) {
-  if (!status) return false;
-  const normalized = String(status).toLowerCase();
-  return !INACTIVE_LOAN_KEYWORDS.some((keyword) => normalized.includes(keyword));
+function getColorForStatus(status) {
+  switch (status) {
+    case "Booking":
+      return "bg-yellow-100 text-yellow-700";
+    case "Sanctioned":
+      return "bg-blue-100 text-blue-700";
+    case "Disbursed":
+      return "bg-green-100 text-green-700";
+    case "Rejected":
+      return "bg-red-100 text-red-700";
+    case "Login":
+      return "bg-gray-100 text-gray-700";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
 }
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const numberFormatter = useMemo(() => new Intl.NumberFormat(), []);
-  const [metrics, setMetrics] = useState({
-    customersAddedToday: 0,
-    activeLoans: 0,
-    tasksDueToday: 0,
-    documentsUploadedThisWeek: 0,
-  });
+  const [customerStats, setCustomerStats] = useState([]);
+  const [loanStats, setLoanStats] = useState([]);
+  const [tasksDueToday, setTasksDueToday] = useState(0);
   const [loading, setLoading] = useState({
     customers: true,
     loans: true,
     tasks: true,
-    documents: true,
   });
   const [errors, setErrors] = useState({
-    customers: false,
-    loans: false,
-    tasks: false,
-    documents: false,
+    customers: "",
+    loans: "",
+    tasks: "",
   });
 
   useEffect(() => {
@@ -88,22 +62,25 @@ export default function Dashboard() {
 
     async function loadCustomers() {
       setLoading((prev) => ({ ...prev, customers: true }));
-      setErrors((prev) => ({ ...prev, customers: false }));
+      setErrors((prev) => ({ ...prev, customers: "" }));
       try {
-        const response = await api.get("/api/customers");
+        const response = await api.get("/api/reports/customers-by-status");
         if (!isActive) return;
         const list = Array.isArray(response.data) ? response.data : [];
-        const todayRange = getTodayRange();
-        const count = list.filter((customer) =>
-          isDateInRange(customer.created_at || customer.createdAt, todayRange)
-        ).length;
-        setMetrics((prev) => ({ ...prev, customersAddedToday: count }));
+        setCustomerStats(
+          list.map((item) => ({
+            status: item.status || "Unknown",
+            total: Number(item.total) || 0,
+          }))
+        );
       } catch (error) {
         if (!isActive) return;
-        setErrors((prev) => ({ ...prev, customers: true }));
         const fallback = "Unable to load customer summary";
         const detail = resolveErrorMessage(error);
-        showToast("error", detail ? `${fallback}: ${detail}` : fallback);
+        const message = detail ? `${fallback}: ${detail}` : fallback;
+        setErrors((prev) => ({ ...prev, customers: message }));
+        showToast("error", message);
+        setCustomerStats([]);
       } finally {
         if (isActive) {
           setLoading((prev) => ({ ...prev, customers: false }));
@@ -113,33 +90,25 @@ export default function Dashboard() {
 
     async function loadLoans() {
       setLoading((prev) => ({ ...prev, loans: true }));
-      setErrors((prev) => ({ ...prev, loans: false }));
+      setErrors((prev) => ({ ...prev, loans: "" }));
       try {
-        let activeCount = 0;
-        try {
-          const response = await api.get("/api/reports/loans-by-status");
-          const entries = Array.isArray(response.data) ? response.data : [];
-          activeCount = entries
-            .filter((entry) => isLoanStatusActive(entry.status))
-            .reduce((total, entry) => total + Number(entry.total || 0), 0);
-        } catch (error) {
-          if (error?.response?.status === 403 || error?.response?.status === 404) {
-            const response = await api.get("/api/loans");
-            const loans = Array.isArray(response.data) ? response.data : [];
-            activeCount = loans.filter((loan) => isLoanStatusActive(loan.status)).length;
-          } else {
-            throw error;
-          }
-        }
-
+        const response = await api.get("/api/reports/loans-by-status");
         if (!isActive) return;
-        setMetrics((prev) => ({ ...prev, activeLoans: activeCount }));
+        const list = Array.isArray(response.data) ? response.data : [];
+        setLoanStats(
+          list.map((item) => ({
+            status: item.status || "Unknown",
+            total: Number(item.total) || 0,
+          }))
+        );
       } catch (error) {
         if (!isActive) return;
-        setErrors((prev) => ({ ...prev, loans: true }));
         const fallback = "Unable to load loan summary";
         const detail = resolveErrorMessage(error);
-        showToast("error", detail ? `${fallback}: ${detail}` : fallback);
+        const message = detail ? `${fallback}: ${detail}` : fallback;
+        setErrors((prev) => ({ ...prev, loans: message }));
+        showToast("error", message);
+        setLoanStats([]);
       } finally {
         if (isActive) {
           setLoading((prev) => ({ ...prev, loans: false }));
@@ -149,7 +118,7 @@ export default function Dashboard() {
 
     async function loadTasks() {
       setLoading((prev) => ({ ...prev, tasks: true }));
-      setErrors((prev) => ({ ...prev, tasks: false }));
+      setErrors((prev) => ({ ...prev, tasks: "" }));
       try {
         const today = new Date().toISOString().slice(0, 10);
         const response = await api.get("/api/tasks", {
@@ -162,13 +131,15 @@ export default function Dashboard() {
         });
         if (!isActive) return;
         const total = Number(response.data?.total ?? 0);
-        setMetrics((prev) => ({ ...prev, tasksDueToday: Number.isNaN(total) ? 0 : total }));
+        setTasksDueToday(Number.isNaN(total) ? 0 : total);
       } catch (error) {
         if (!isActive) return;
-        setErrors((prev) => ({ ...prev, tasks: true }));
         const fallback = "Unable to load task summary";
         const detail = resolveErrorMessage(error);
-        showToast("error", detail ? `${fallback}: ${detail}` : fallback);
+        const message = detail ? `${fallback}: ${detail}` : fallback;
+        setErrors((prev) => ({ ...prev, tasks: message }));
+        showToast("error", message);
+        setTasksDueToday(0);
       } finally {
         if (isActive) {
           setLoading((prev) => ({ ...prev, tasks: false }));
@@ -176,84 +147,14 @@ export default function Dashboard() {
       }
     }
 
-    async function loadDocuments() {
-      setLoading((prev) => ({ ...prev, documents: true }));
-      setErrors((prev) => ({ ...prev, documents: false }));
-      try {
-        const response = await api.get("/api/documents");
-        if (!isActive) return;
-        const list = Array.isArray(response.data) ? response.data : [];
-        const weekRange = getWeekRange();
-        const count = list.filter((document) =>
-          isDateInRange(document.created_at || document.createdAt, weekRange)
-        ).length;
-        setMetrics((prev) => ({ ...prev, documentsUploadedThisWeek: count }));
-      } catch (error) {
-        if (!isActive) return;
-        setErrors((prev) => ({ ...prev, documents: true }));
-        const fallback = "Unable to load document summary";
-        const detail = resolveErrorMessage(error);
-        showToast("error", detail ? `${fallback}: ${detail}` : fallback);
-      } finally {
-        if (isActive) {
-          setLoading((prev) => ({ ...prev, documents: false }));
-        }
-      }
-    }
-
     loadCustomers();
     loadLoans();
     loadTasks();
-    loadDocuments();
 
     return () => {
       isActive = false;
     };
   }, [showToast]);
-
-  const cards = useMemo(
-    () => [
-      {
-        key: "customers",
-        title: "Customers Added Today",
-        metricKey: "customersAddedToday",
-        icon: "👤",
-        color: "bg-blue-100 text-blue-700",
-        to: "/customers",
-      },
-      {
-        key: "loans",
-        title: "Active Loans",
-        metricKey: "activeLoans",
-        icon: "💰",
-        color: "bg-green-100 text-green-700",
-        to: "/loans",
-      },
-      {
-        key: "tasks",
-        title: "Tasks Due Today",
-        metricKey: "tasksDueToday",
-        icon: "📅",
-        color: "bg-yellow-100 text-yellow-700",
-        to: "/tasks",
-      },
-      {
-        key: "documents",
-        title: "Documents Uploaded This Week",
-        metricKey: "documentsUploadedThisWeek",
-        icon: "📄",
-        color: "bg-purple-100 text-purple-700",
-        to: "/documents",
-      },
-    ],
-    []
-  );
-
-  const getCardValue = (card) => {
-    if (loading[card.key]) return "…";
-    if (errors[card.key]) return "—";
-    return numberFormatter.format(metrics[card.metricKey] || 0);
-  };
 
   return (
     <div className="p-4">
@@ -265,23 +166,100 @@ export default function Dashboard() {
           </p>
         </header>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {cards.map((card) => (
-            <button
-              key={card.key}
-              type="button"
-              onClick={() => navigate(card.to)}
-              aria-label={card.title}
-              className="group w-full rounded-xl text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-            >
-              <DashboardCard
-                title={card.title}
-                value={getCardValue(card)}
-                icon={card.icon}
-                color={`${card.color} group-hover:-translate-y-0.5 group-hover:shadow-md`}
-              />
-            </button>
-          ))}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <DashboardCard title="Customers by Status" loading={loading.customers}>
+            {errors.customers ? (
+              <p className="text-sm text-red-500">{errors.customers}</p>
+            ) : customerStats.length > 0 ? (
+              <ul className="divide-y divide-gray-100">
+                {customerStats.map((item) => (
+                  <li
+                    key={item.status}
+                    className="flex items-center justify-between py-1"
+                  >
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-medium ${getColorForStatus(
+                        item.status
+                      )}`}
+                    >
+                      {item.status}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-800">
+                      {numberFormatter.format(item.total)}
+                    </span>
+                  </li>
+                ))}
+                <li className="mt-1 flex items-center justify-between border-t pt-2">
+                  <span className="text-sm font-medium text-gray-500">Total</span>
+                  <span className="text-sm font-bold text-gray-800">
+                    {numberFormatter.format(
+                      customerStats.reduce((sum, item) => sum + item.total, 0)
+                    )}
+                  </span>
+                </li>
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500">No data available.</p>
+            )}
+          </DashboardCard>
+
+          <DashboardCard title="Loans by Status" loading={loading.loans}>
+            {errors.loans ? (
+              <p className="text-sm text-red-500">{errors.loans}</p>
+            ) : loanStats.length > 0 ? (
+              <ul className="divide-y divide-gray-100">
+                {loanStats.map((item) => (
+                  <li
+                    key={item.status}
+                    className="flex items-center justify-between py-1"
+                  >
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs font-medium ${getColorForStatus(
+                        item.status
+                      )}`}
+                    >
+                      {item.status}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-800">
+                      {numberFormatter.format(item.total)}
+                    </span>
+                  </li>
+                ))}
+                <li className="mt-1 flex items-center justify-between border-t pt-2">
+                  <span className="text-sm font-medium text-gray-500">Total</span>
+                  <span className="text-sm font-bold text-gray-800">
+                    {numberFormatter.format(
+                      loanStats.reduce((sum, item) => sum + item.total, 0)
+                    )}
+                  </span>
+                </li>
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500">No data available.</p>
+            )}
+          </DashboardCard>
+
+          <DashboardCard title="Tasks Due Today" loading={loading.tasks}>
+            {errors.tasks ? (
+              <p className="text-sm text-red-500">{errors.tasks}</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <span className="text-3xl font-semibold text-gray-900">
+                  {numberFormatter.format(tasksDueToday)}
+                </span>
+                <p className="text-sm text-gray-500">
+                  Tasks scheduled for completion today across all customers.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate("/tasks")}
+                  className="inline-flex w-max items-center justify-center rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors duration-200 hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                >
+                  View Tasks
+                </button>
+              </div>
+            )}
+          </DashboardCard>
         </div>
       </div>
     </div>

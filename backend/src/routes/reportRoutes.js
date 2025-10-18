@@ -4,7 +4,7 @@ const sequelize = require("../config/db");
 const auth = require("../middleware/auth");
 const router = express.Router();
 
-function buildRoleFilter(userRole) {
+function buildRoleFilter(userRole, userId) {
   if (userRole === "admin") {
     return { clause: "", replacements: {} };
   }
@@ -18,7 +18,7 @@ function buildRoleFilter(userRole) {
         WHERE ca.customer_id = c.id AND ca.agent_id = :userId
       )
     )`,
-    replacements: { userId: null },
+    replacements: { userId },
   };
 }
 
@@ -31,7 +31,10 @@ function normalizePagination(query) {
 router.get("/customers", auth(), async (req, res) => {
   try {
     const { page, limit, offset } = normalizePagination(req.query);
-    const { clause: roleClause, replacements: roleReplacements } = buildRoleFilter(req.user.role);
+    const { clause: roleClause, replacements: roleReplacements } = buildRoleFilter(
+      req.user.role,
+      req.user.id
+    );
 
     const filters = [];
     const replacements = {
@@ -39,8 +42,6 @@ router.get("/customers", auth(), async (req, res) => {
       offset,
       ...roleReplacements,
     };
-
-    replacements.userId = req.user.id;
 
     if (req.query.customer_status) {
       filters.push("c.status = :customerStatus");
@@ -106,28 +107,43 @@ router.get("/customers", auth(), async (req, res) => {
   }
 });
 
-// Customers by status (Admin only)
-router.get("/customers-by-status", auth("admin"), async (req, res) => {
+// Customers by status (role-aware)
+router.get("/customers-by-status", auth(), async (req, res) => {
   try {
-    const [results] = await sequelize.query(`
-      SELECT status, COUNT(*) as total
-      FROM customers
-      GROUP BY status
-    `);
+    const { clause: roleClause, replacements } = buildRoleFilter(req.user.role, req.user.id);
+
+    const results = await sequelize.query(
+      `SELECT c.status, COUNT(*)::int AS total
+       FROM customers c
+       WHERE 1=1
+       ${roleClause}
+       GROUP BY c.status
+       ORDER BY c.status`,
+      { replacements, type: QueryTypes.SELECT }
+    );
+
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Loans by status (Admin only)
-router.get("/loans-by-status", auth("admin"), async (req, res) => {
+// Loans by status (role-aware)
+router.get("/loans-by-status", auth(), async (req, res) => {
   try {
-    const [results] = await sequelize.query(`
-      SELECT status, COUNT(*) as total
-      FROM loans
-      GROUP BY status
-    `);
+    const { clause: roleClause, replacements } = buildRoleFilter(req.user.role, req.user.id);
+
+    const results = await sequelize.query(
+      `SELECT l.status, COUNT(*)::int AS total
+       FROM loans l
+       JOIN customers c ON c.id = l.customer_id
+       WHERE 1=1
+       ${roleClause}
+       GROUP BY l.status
+       ORDER BY l.status`,
+      { replacements, type: QueryTypes.SELECT }
+    );
+
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
