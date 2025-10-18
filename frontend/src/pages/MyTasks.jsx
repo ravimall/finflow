@@ -862,6 +862,17 @@ export default function MyTasks() {
     } else if (isAdmin) {
       params.scope_mode = "all";
     }
+
+    if (!isAdmin) {
+      if (user?.id) {
+        const normalizedAgentId = String(user.id);
+        params.agent_id = [normalizedAgentId];
+        params.agentId = user.id;
+        params.scope_mode = "agent";
+        params.scope_id = normalizedAgentId;
+      }
+      delete params.unassigned;
+    }
     return params;
   }, [
     debouncedSearch,
@@ -882,6 +893,7 @@ export default function MyTasks() {
     dueRange.from,
     dueRange.to,
     isAdmin,
+    user?.id,
   ]);
 
   const [synchronizingUrl, setSynchronizingUrl] = useState(false);
@@ -953,6 +965,11 @@ export default function MyTasks() {
   ]);
   const fetchTasks = useCallback(async () => {
     if (synchronizingUrl) {
+      return;
+    }
+    if (!user?.id) {
+      setData((prev) => ({ ...prev, items: [], groups: [], total: 0 }));
+      setLoading(false);
       return;
     }
     setLoading(true);
@@ -1128,7 +1145,18 @@ export default function MyTasks() {
         return;
       }
 
-      const response = await api.get("/api/tasks", { params: queryParams });
+      const params = { ...queryParams };
+      if (!isAdmin) {
+        const normalizedAgentId = String(user.id);
+        params.agent_id = Array.isArray(params.agent_id) ? params.agent_id : params.agent_id ? [params.agent_id] : [];
+        if (!params.agent_id.includes(normalizedAgentId)) {
+          params.agent_id.push(normalizedAgentId);
+        }
+        params.agentId = user.id;
+        delete params.unassigned;
+      }
+
+      const response = await api.get("/api/tasks", { params });
       const items = Array.isArray(response.data?.items)
         ? response.data.items.map(normalizeTaskFromApi).filter(Boolean)
         : [];
@@ -1164,6 +1192,7 @@ export default function MyTasks() {
   }, [
     drawerTask,
     groupBy,
+    isAdmin,
     isDesktop,
     page,
     pageSize,
@@ -1172,6 +1201,7 @@ export default function MyTasks() {
     statusFilter,
     synchronizingUrl,
     useLegacyApi,
+    user?.id,
     userId,
   ]);
 

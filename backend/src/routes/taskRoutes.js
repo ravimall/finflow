@@ -356,6 +356,8 @@ router.get("/", auth(), async (req, res) => {
     let pageSize = Number.isNaN(rawPageSize) ? 50 : rawPageSize;
     pageSize = Math.min(Math.max(pageSize, 1), 200);
 
+    const isAdminUser = req.user?.role === "admin";
+
     const statusFilters = parseArrayParam(req.query, "status");
     const invalidStatuses = statusFilters.filter((status) => !ALLOWED_STATUSES.includes(status));
     if (invalidStatuses.length) {
@@ -380,7 +382,7 @@ router.get("/", auth(), async (req, res) => {
     }
 
     const overdueOnly = parseBoolean(req.query.overdue_only);
-    const unassigned = parseBoolean(req.query.unassigned);
+    const unassigned = isAdminUser ? parseBoolean(req.query.unassigned) : false;
     const riskOnly = parseBoolean(req.query.risk_only);
 
     const tagFilters = parseArrayParam(req.query, "tags").filter((tag) => tag.length > 0);
@@ -388,16 +390,23 @@ router.get("/", auth(), async (req, res) => {
     const customerFilters = parseArrayParam(req.query, "customer_id")
       .map((value) => parseInt(value, 10))
       .filter((value) => !Number.isNaN(value));
-    const agentFilters = parseArrayParam(req.query, "agent_id")
+    const agentIdParam = req.query.agentId;
+    const agentFiltersRaw = parseArrayParam(req.query, "agent_id");
+    const combinedAgentFilters = Array.isArray(agentIdParam) ? agentIdParam : agentIdParam ? [agentIdParam] : [];
+    const agentFilters = agentFiltersRaw
+      .concat(combinedAgentFilters)
       .map((value) => parseInt(value, 10))
       .filter((value) => !Number.isNaN(value));
 
-    const scopeMode = typeof req.query.scope_mode === "string" && req.query.scope_mode.trim() !== ""
+    let scopeMode = typeof req.query.scope_mode === "string" && req.query.scope_mode.trim() !== ""
       ? req.query.scope_mode.trim()
       : "all";
     const allowedScopes = new Set(["all", "agent", "customer"]);
     if (!allowedScopes.has(scopeMode)) {
       return res.status(400).json({ error: "Invalid scope_mode" });
+    }
+    if (!isAdminUser && scopeMode === "all") {
+      scopeMode = "agent";
     }
 
     const groupBy = typeof req.query.group_by === "string" && req.query.group_by.trim() !== ""
@@ -452,8 +461,9 @@ router.get("/", auth(), async (req, res) => {
       filters.push({ customer_id: { [Sequelize.Op.in]: customerFilters } });
     }
 
-    if (agentFilters.length && !unassigned) {
-      filters.push({ assignee_id: { [Sequelize.Op.in]: agentFilters } });
+    const effectiveAgentFilters = isAdminUser ? agentFilters : [req.user?.id].filter((value) => value);
+    if (effectiveAgentFilters.length && !unassigned) {
+      filters.push({ assignee_id: { [Sequelize.Op.in]: effectiveAgentFilters } });
     }
 
     if (tagFilters.length) {
@@ -482,7 +492,8 @@ router.get("/", auth(), async (req, res) => {
     }
 
     if (scopeMode === "agent") {
-      const scopeId = req.query.scope_id ? parseInt(req.query.scope_id, 10) : req.user?.id;
+      const scopeIdRaw = req.query.scope_id ? parseInt(req.query.scope_id, 10) : req.user?.id;
+      const scopeId = isAdminUser ? scopeIdRaw : req.user?.id;
       if (!scopeId || Number.isNaN(scopeId)) {
         return res.status(400).json({ error: "Invalid scope_id for agent scope" });
       }
