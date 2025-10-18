@@ -230,7 +230,7 @@ export default function Customers() {
               className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               <Plus className="h-5 w-5" />
-              <span className="hidden sm:inline">Add Customer</span>
+              <span>Add Customer</span>
             </button>
           )}
         </div>
