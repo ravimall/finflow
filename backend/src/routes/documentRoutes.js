@@ -9,6 +9,7 @@ const {
   Customer,
   CustomerAgent,
   Document,
+  User,
 } = require("../models");
 const auth = require("../middleware/auth");
 const {
@@ -257,53 +258,550 @@ async function refreshDocumentLink(document) {
   return document;
 }
 
+function buildTypeClause(type) {
+  if (!type || type === "all") {
+    return null;
+  }
+
+  const normalized = String(type).toLowerCase();
+
+  switch (normalized) {
+    case "pdf":
+      return { mime_type: { [Op.iLike]: "%pdf%" } };
+    case "image":
+      return { mime_type: { [Op.iLike]: "image/%" } };
+    case "word": {
+      const candidates = [
+        { mime_type: { [Op.iLike]: "%msword%" } },
+        { mime_type: { [Op.iLike]: "%wordprocessingml%" } },
+        { mime_type: { [Op.iLike]: "%opendocument.text%" } },
+      ];
+      return { [Op.or]: candidates };
+    }
+    default:
+      return null;
+  }
+}
+
+function buildOrder(sort, order) {
+  const direction = String(order || "desc").toUpperCase() === "ASC" ? "ASC" : "DESC";
+  const normalized = String(sort || "date").toLowerCase();
+
+  switch (normalized) {
+    case "name":
+      return [["file_name", direction]];
+    case "type":
+      return [["mime_type", direction], ["file_name", "ASC"]];
+    case "modifiedby":
+    case "modified_by":
+      return [
+        [{ model: User, as: "uploader" }, "name", direction],
+        ["file_name", "ASC"],
+      ];
+    case "date":
+    default:
+      return [["created_at", direction]];
+  }
+}
+
+async function fetchDocumentForUser(documentId, user) {
+  const document = await Document.findByPk(documentId, {
+    include: [{ model: User, as: "uploader", attributes: ["id", "name", "email"] }],
+  });
+  if (!document) {
+    return null;
+  }
+
+  const allowed = await userCanAccessCustomer(user, document.customer_id);
+  if (!allowed) {
+    const err = new Error("Access denied");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  return document;
+}
+
+function serializeDocument(document) {
+  const payload = document.get ? document.get({ plain: true }) : document;
+  const uploader = payload.uploader
+    ? {
+        id: payload.uploader.id,
+        name: payload.uploader.name,
+        email: payload.uploader.email,
+      }
+    : null;
+
+  return {
+    id: payload.id,
+    customer_id: payload.customer_id,
+    file_name: payload.file_name,
+    file_path: payload.file_path,
+    file_url: payload.file_url || null,
+    size_bytes: payload.size_bytes,
+    mime_type: payload.mime_type,
+    uploaded_by: payload.uploaded_by,
+    created_at: payload.created_at,
+    updated_at: payload.updated_at || payload.created_at,
+    uploader,
+  };
+}
+
+async function renameDocumentForUser(document, newName, user) {
+  const oldPath = document.file_path;
+  if (!oldPath) {
+    const err = new Error("File path missing");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const customer = await Customer.findByPk(document.customer_id);
+  if (!customer) {
+    const err = new Error("Customer not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const allowed = await userCanAccessCustomer(user, customer.id);
+  if (!allowed) {
+    const err = new Error("Access denied");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  const baseDir = path.posix.dirname(oldPath);
+  const extension = path.posix.extname(oldPath);
+  const sanitized = sanitizeFileName(newName);
+  const finalName = sanitized.includes(".") ? sanitized : `${sanitized}${extension}`;
+
+  if (!finalName || finalName.includes("/")) {
+    const err = new Error("Invalid file name");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const newPath = `${baseDir}/${finalName}`;
+
+  logDropboxAction("rename", oldPath, user?.id);
+
+  const moveRes = await dbx.filesMoveV2({
+    from_path: oldPath,
+    to_path: newPath,
+    autorename: false,
+  });
+
+  const metadata = moveRes?.result?.metadata || {};
+  const newPathLower = metadata.path_lower || newPath.toLowerCase();
+
+  await document.update({
+    file_name: metadata.name || finalName,
+    file_path: newPathLower,
+    file_url: null,
+  });
+
+  await document.reload({
+    include: [{ model: User, as: "uploader", attributes: ["id", "name", "email"] }],
+  });
+
+  await logAudit(
+    user.id,
+    customer.id,
+    "document.renamed",
+    JSON.stringify({ from: oldPath, to: newPathLower })
+  );
+
+  return serializeDocument(document);
+}
+
+async function deleteDocumentForUser(document, user) {
+  const pathLower = document.file_path;
+  if (!pathLower) {
+    await document.destroy();
+    return;
+  }
+
+  const customer = await Customer.findByPk(document.customer_id);
+  if (!customer) {
+    await document.destroy();
+    return;
+  }
+
+  const allowed = await userCanAccessCustomer(user, customer.id);
+  if (!allowed) {
+    const err = new Error("Access denied");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  logDropboxAction("delete", pathLower, user?.id);
+
+  await dbx.filesDeleteV2({ path: pathLower });
+  await Document.destroy({ where: { file_path: pathLower.toLowerCase() } });
+
+  await logAudit(
+    user.id,
+    customer.id,
+    "document.deleted",
+    JSON.stringify({ path: pathLower })
+  );
+}
+
+async function createTemporaryLink(pathValue, action, userId) {
+  if (!pathValue) {
+    const err = new Error("Path is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  logDropboxAction(action, pathValue, userId);
+
+  const linkRes = await dbx.filesGetTemporaryLink({ path: pathValue });
+  const url = linkRes?.result?.link;
+
+  if (!url) {
+    const err = new Error(`Unable to generate ${action} link`);
+    err.statusCode = 500;
+    throw err;
+  }
+
+  return url;
+}
+
+async function uploadFilesForCustomer(customer, files, user, { path: relativePath } = {}) {
+  if (!files.length) {
+    const err = new Error("No files uploaded");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const { path: baseFolder } = await sequelize.transaction(async (transaction) => {
+    const customerForUpdate = await Customer.findByPk(customer.id, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    const outcome = await ensureCustomerFolderPath(customerForUpdate, user.id, transaction);
+
+    return { path: outcome.path };
+  });
+
+  const destinationFolder = combineWithinFolder(baseFolder, relativePath);
+  await ensureFolderHierarchy(destinationFolder);
+
+  logDropboxAction("upload", destinationFolder, user?.id);
+
+  const uploaded = [];
+
+  for (const file of files) {
+    const dropboxPath = buildUploadPath(destinationFolder, file.originalname);
+    logDropboxAction("upload", dropboxPath, user?.id);
+
+    const uploadResponse = await dbx.filesUpload({
+      path: dropboxPath,
+      contents: file.buffer,
+      mode: { ".tag": "add" },
+      autorename: true,
+    });
+
+    const uploadResult = uploadResponse.result || {};
+    const uploadPathLower = uploadResult.path_lower || dropboxPath.toLowerCase();
+    const storedName = uploadResult.name || sanitizeFileName(file.originalname);
+
+    const document = await Document.create({
+      customer_id: customer.id,
+      uploaded_by: user.id,
+      file_name: storedName,
+      file_path: uploadPathLower,
+      file_url: null,
+      size_bytes: file.size,
+      mime_type: file.mimetype,
+    });
+
+    await document.reload({
+      include: [{ model: User, as: "uploader", attributes: ["id", "name", "email"] }],
+    });
+
+    await logAudit(
+      user.id,
+      customer.id,
+      "document.uploaded",
+      JSON.stringify({
+        file_name: document.file_name,
+        file_path: document.file_path,
+        size_bytes: document.size_bytes,
+      })
+    );
+
+    uploaded.push(serializeDocument(document));
+  }
+
+  return { uploaded, destinationFolder };
+}
+
 router.get("/", auth(), async (req, res) => {
   try {
-    let documents = [];
+    const { customerId, type, uploadedBy, sort, order } = req.query;
 
-    if (req.user.role === "admin") {
-      documents = await Document.findAll({
-        order: [["created_at", "DESC"]],
-      });
-    } else {
-      const [assignments, createdCustomers] = await Promise.all([
-        CustomerAgent.findAll({
-          where: { agent_id: req.user.id },
-          attributes: ["customer_id"],
-        }),
-        Customer.findAll({
-          where: { created_by: req.user.id },
-          attributes: ["id"],
-        }),
-      ]);
-
-      const allowedCustomerIds = new Set();
-      assignments.forEach((assignment) => {
-        if (assignment.customer_id) {
-          allowedCustomerIds.add(assignment.customer_id);
-        }
-      });
-      createdCustomers.forEach((customer) => {
-        if (customer.id) {
-          allowedCustomerIds.add(customer.id);
-        }
-      });
-
-      if (!allowedCustomerIds.size) {
-        return res.json([]);
-      }
-
-      documents = await Document.findAll({
-        where: { customer_id: { [Op.in]: Array.from(allowedCustomerIds) } },
-        order: [["created_at", "DESC"]],
-      });
+    if (!customerId) {
+      return res.status(400).json({ error: "Customer ID required" });
     }
 
-    const refreshed = await Promise.all(documents.map((doc) => refreshDocumentLink(doc)));
+    const customer = await Customer.findByPk(customerId);
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
 
-    res.json(Array.isArray(refreshed) ? refreshed : []);
+    const allowed = await userCanAccessCustomer(req.user, customer.id);
+    if (!allowed) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const where = { customer_id: customer.id };
+    const typeClause = buildTypeClause(type);
+
+    if (typeClause) {
+      if (typeClause[Op.or]) {
+        where[Op.and] = where[Op.and] || [];
+        where[Op.and].push({ [Op.or]: typeClause[Op.or] });
+      } else {
+        Object.assign(where, typeClause);
+      }
+    }
+
+    if (uploadedBy && req.user.role === "admin") {
+      where.uploaded_by = uploadedBy;
+    }
+
+    const orderBy = buildOrder(sort, order);
+
+    const documents = await Document.findAll({
+      where,
+      include: [{ model: User, as: "uploader", attributes: ["id", "name", "email"] }],
+      order: orderBy,
+    });
+
+    const payload = documents.map((doc) => serializeDocument(doc));
+
+    res.json({
+      items: payload,
+      meta: {
+        count: payload.length,
+        sort: sort || "date",
+        order: (order || "desc").toLowerCase(),
+      },
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message || "Unable to fetch documents" });
+    const statusCode = err.statusCode || err.status || 500;
+    res.status(statusCode).json({ error: err.message || "Unable to fetch documents" });
+  }
+});
+
+router.post("/upload", auth(), upload.array("files"), async (req, res) => {
+  try {
+    const { customerId, path: relativePath } = req.body || {};
+    const files = Array.isArray(req.files) ? req.files : [];
+
+    if (!customerId) {
+      return res.status(400).json({ error: "Customer ID required" });
+    }
+
+    const customer = await Customer.findByPk(customerId);
+    if (!customer) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const allowed = await userCanAccessCustomer(req.user, customer.id);
+    if (!allowed) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const { uploaded, destinationFolder } = await uploadFilesForCustomer(
+      customer,
+      files,
+      req.user,
+      { path: relativePath }
+    );
+
+    res.json({
+      message: uploaded.length > 1 ? "Files uploaded" : "File uploaded",
+      files: uploaded,
+      folder: destinationFolder,
+    });
+  } catch (err) {
+    handleDropboxError(res, err, "Dropbox upload failed");
+  }
+});
+
+router.put("/:id/rename", auth(), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body || {};
+
+    if (!name || !String(name).trim()) {
+      return res.status(400).json({ error: "New file name required" });
+    }
+
+    const document = await fetchDocumentForUser(id, req.user);
+    if (!document) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    const renamed = await renameDocumentForUser(document, name, req.user);
+
+    res.json({ message: "File renamed", file: renamed });
+  } catch (err) {
+    if (err.statusCode && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return handleDropboxError(res, err, "Dropbox rename failed");
+  }
+});
+
+router.delete("/:id", auth(), async (req, res) => {
+  try {
+    const document = await fetchDocumentForUser(req.params.id, req.user);
+    if (!document) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    await deleteDocumentForUser(document, req.user);
+
+    res.json({ message: "Document deleted" });
+  } catch (err) {
+    if (err.statusCode && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return handleDropboxError(res, err, "Dropbox delete failed");
+  }
+});
+
+router.delete("/", auth(), async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) {
+      return res.status(400).json({ error: "ids array is required" });
+    }
+
+    const documents = await Document.findAll({ where: { id: ids } });
+    const docsById = new Map(documents.map((doc) => [String(doc.id), doc]));
+
+    let deleted = 0;
+    const failures = [];
+
+    for (const id of ids) {
+      const document = docsById.get(String(id));
+      if (!document) {
+        failures.push({ id, error: "Not found" });
+        continue;
+      }
+
+      try {
+        const allowed = await userCanAccessCustomer(req.user, document.customer_id);
+        if (!allowed) {
+          failures.push({ id, error: "Access denied" });
+          continue;
+        }
+
+        await deleteDocumentForUser(document, req.user);
+        deleted += 1;
+      } catch (error) {
+        failures.push({ id, error: error.message });
+      }
+    }
+
+    res.json({
+      message: deleted ? "Documents deleted" : "No documents deleted",
+      deleted,
+      failures,
+    });
+  } catch (err) {
+    if (err.statusCode && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return handleDropboxError(res, err, "Dropbox delete failed");
+  }
+});
+
+router.get("/:id/download", auth(), async (req, res) => {
+  try {
+    const document = await fetchDocumentForUser(req.params.id, req.user);
+    if (!document) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    const url = await createTemporaryLink(document.file_path, "download", req.user?.id);
+
+    res.json({ url, file: serializeDocument(document) });
+  } catch (err) {
+    if (err.statusCode && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return handleDropboxError(res, err, "Dropbox download failed");
+  }
+});
+
+router.get("/:id/preview", auth(), async (req, res) => {
+  try {
+    const document = await fetchDocumentForUser(req.params.id, req.user);
+    if (!document) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    const url = await createTemporaryLink(document.file_path, "preview", req.user?.id);
+
+    res.json({ preview_url: url });
+  } catch (err) {
+    if (err.statusCode && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return handleDropboxError(res, err, "Dropbox preview failed");
+  }
+});
+
+router.post("/batch-download", auth(), async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) {
+      return res.status(400).json({ error: "ids array is required" });
+    }
+
+    const documents = await Document.findAll({ where: { id: ids } });
+    const docsById = new Map(documents.map((doc) => [String(doc.id), doc]));
+
+    const links = [];
+    const failures = [];
+
+    for (const id of ids) {
+      const document = docsById.get(String(id));
+      if (!document) {
+        failures.push({ id, error: "Not found" });
+        continue;
+      }
+
+      try {
+        const allowed = await userCanAccessCustomer(req.user, document.customer_id);
+        if (!allowed) {
+          failures.push({ id, error: "Access denied" });
+          continue;
+        }
+
+        const url = await createTemporaryLink(document.file_path, "download", req.user?.id);
+        links.push({ id: document.id, url, file: serializeDocument(document) });
+      } catch (error) {
+        failures.push({ id, error: error.message });
+      }
+    }
+
+    res.json({
+      message: links.length ? "Download links generated" : "No download links generated",
+      links,
+      failures,
+    });
+  } catch (err) {
+    if (err.statusCode && err.statusCode < 500) {
+      return res.status(err.statusCode).json({ error: err.message });
+    }
+    return handleDropboxError(res, err, "Dropbox download failed");
   }
 });
 

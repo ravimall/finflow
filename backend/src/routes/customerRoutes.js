@@ -385,11 +385,7 @@ router.get("/", auth(), async (req, res) => {
       });
 
       query.where = {
-        [Op.or]: [
-          { primary_agent_id: req.user.id },
-          { created_by: req.user.id },
-          { "$assignments.agent_id$": req.user.id },
-        ],
+        [Op.or]: [{ created_by: req.user.id }, { "$assignments.agent_id$": req.user.id }],
       };
     }
 

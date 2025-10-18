@@ -31,6 +31,8 @@ Loan.belongsTo(ConfigBank, { foreignKey: "bank_id", as: "bank" });
 
 Customer.hasMany(Document, { foreignKey: "customer_id", as: "documents" });
 Document.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
+Document.belongsTo(User, { foreignKey: "uploaded_by", as: "uploader" });
+User.hasMany(Document, { foreignKey: "uploaded_by", as: "uploadedDocuments" });
 
 Customer.hasMany(CustomerNote, { foreignKey: "customer_id", as: "notes" });
 CustomerNote.belongsTo(Customer, { foreignKey: "customer_id", as: "customer" });
